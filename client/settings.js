@@ -1,15 +1,23 @@
 import React from 'react';
+import {Icon} from './icons.js';
 const h=React.createElement;
 const sheet=`
-.ci-settings{display:grid;gap:16px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.6}
+.ci-settings{display:grid;gap:16px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:22px}
+.ci-settings *{box-sizing:border-box}.ci-settings h2,.ci-settings h3,.ci-settings p{margin:0}.ci-settings h2{font-size:16px;font-weight:600}.ci-settings h3{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.ci-settings h3 svg{color:var(--dsw-alias-label-secondary);flex:none}
+.ci-settings .ci-section{display:grid;gap:12px;padding:16px;border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l3));border-radius:var(--dsw-radius-xl,12px);background:var(--dsw-alias-settings-card-fill)}
+.ci-settings .ci-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ci-settings .ci-footer{padding-top:4px}.ci-settings .ci-note{display:flex;align-items:flex-start;gap:8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.ci-note svg{flex:none;margin-top:1px}
+.ci-settings .ci-notice{padding:10px 12px;border-radius:var(--dsw-radius-md,6px);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
+@media(max-width:560px){.ci-settings .ci-grid{grid-template-columns:1fr}.ci-settings .ci-section{padding:12px}}
 .ci-settings input,.ci-settings select,.ci-settings button{font:inherit;color:inherit;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,6px);padding:6px 10px}
-.ci-settings label{display:grid;gap:4px}.ci-settings .ci-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ci-settings label{display:grid;gap:6px;min-width:0}.ci-settings label>input:not([type=checkbox]){width:100%;min-width:0}.ci-settings .ci-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ci-settings .ci-inline>select{flex:1;min-width:120px}.ci-settings button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px}.ci-settings input:focus-visible,.ci-settings select:focus-visible,.ci-settings button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .ci-settings .ci-inline label{display:flex;align-items:center}.ci-settings input[type=checkbox]{accent-color:var(--dsw-alias-state-business-primary)}
 .ci-settings .ci-model{display:grid;gap:8px;padding:12px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,6px)}
 .ci-settings small{color:var(--dsw-alias-label-tertiary)}.ci-settings button{cursor:pointer}.ci-settings button:disabled{opacity:.5;cursor:default}
 .ci-settings button:hover:enabled{background:var(--dsw-alias-interactive-bg-hover)}
-.ci-settings .ci-primary{background:var(--dsw-alias-state-business-primary);color:white}.ci-settings .ci-error{color:var(--dsw-alias-state-error-primary)}
+.ci-settings .ci-primary{background:var(--dsw-alias-state-business-primary);color:white}.ci-settings .ci-primary:hover:enabled{filter:brightness(.95);background:var(--dsw-alias-state-business-primary)}.ci-settings .ci-error{color:var(--dsw-alias-state-error-primary)}
 `;
+const heading=(name,label)=>h('h3',null,h(Icon,{name}),label);
+const note=text=>h('p',{className:'ci-note'},h(Icon,{name:'info'}),text);
 function modelRow(row) {return typeof row==='string'?{id:row}:structuredClone(row);}
 export function mountSettings(ctx) {
   function Panel({scope,view}) {
@@ -92,26 +100,31 @@ export function mountSettings(ctx) {
     }
     return h('form',{className:'ci-settings',onSubmit:save},
       h('style',null,sheet),
-      h('h3',null,'Cursor Integration'),
+      h('header',null,h('h2',null,'Cursor Integration'),h('p',{className:'ci-note'},'管理账号、连接和模型；账号用量与线路检测位于「Cursor 账号池」。')),
+      h('section',{className:'ci-section'},heading('key','账号与凭据'),
       h('div',{className:'ci-inline'},
         h('select',{value:ref,disabled,onChange:event=>{setSelected(event.target.value);setKey('');}},
           ...config.accounts.map(row=>h('option',{key:row.apiKeyEnv,value:row.apiKeyEnv},row.label))),
-        h('button',{type:'button',disabled,onClick:addAccount},'添加账号'),
+        h('button',{type:'button',disabled,onClick:addAccount},h(Icon,{name:'plus'}),'添加账号'),
         h('button',{type:'button',disabled:disabled||config.accounts.length<2,onClick:()=>{
           const accounts=config.accounts.filter(row=>row.apiKeyEnv!==ref);
           change({accounts,apiKeyEnv:accounts[0].apiKeyEnv});setSelected(accounts[0].apiKeyEnv);setKey('');
-        }},'移除此账号')),
+        }},h(Icon,{name:'trash'}),'移除此账号')),
+      h('div',{className:'ci-grid'},
       field('账号名称',{value:account?.label??'',onChange:event=>editAccount({label:event.target.value})}),
       field('Cursor API Key',{type:'password',autoComplete:'new-password',value:key,
         placeholder:account?.configured?'已保存，留空继续使用':'粘贴此账号的 API Key',
-        onChange:event=>setKey(event.target.value)}),
-      h('small',null,'密钥写入 DSH 凭据服务，账号配置只保存引用。保存后新请求使用当前账号。'),
+        onChange:event=>setKey(event.target.value)})),
+      note('密钥保存在 DSH 凭据服务。保存后，新请求使用当前账号。')),
+      h('section',{className:'ci-section'},heading('network','连接与刷新'),
+      h('div',{className:'ci-grid'},
       field('代理地址（HTTP 或混合端口）',{value:proxyUrl??snapshot.value?.proxyUrl??'',onChange:event=>setProxyUrl(event.target.value)}),
-      h('small',null,'只为 Cursor SDK 和相关查询使用此代理；留空使用直接连接。'),
       field('后台用量刷新间隔（分钟）',{type:'number',min:1,max:1440,value:config.usageRefreshMinutes??5,
-        onChange:event=>change({usageRefreshMinutes:event.target.value})}),
+        onChange:event=>change({usageRefreshMinutes:event.target.value})})),
+      note('代理只作用于 Cursor SDK 和相关查询；留空直连。用量在后台定时刷新，请求读取已保存的调度结果。')),
+      h('section',{className:'ci-section'},heading('model','模型目录'),
       h('div',{className:'ci-inline'},
-        h('button',{type:'button',disabled,onClick:discover},'获取模型目录'),
+        h('button',{type:'button',disabled,onClick:discover},h(Icon,{name:'refresh'}),'获取模型目录'),
         h('button',{type:'button',disabled,onClick:()=>change({models:undefined})},'跟随账号全部模型')),
       field('搜索模型',{value:query,onChange:event=>setQuery(event.target.value)}),
       ...catalog.filter(row=>(row.name+' '+row.id).toLowerCase().includes(query.toLowerCase()))
@@ -132,9 +145,10 @@ export function mountSettings(ctx) {
               type==='text'?'文字':'图片')),
             h('label',null,h('input',{type:'checkbox',disabled,checked:row.fast===true,onChange:event=>editModel(row.id,{fast:event.target.checked})}),'Fast')),
           !row.inputModalities?h('small',null,'图片能力未声明，当前按文字处理。'):null)),
-      notice?h('p',{role:'status'},notice):null,
-      h('div',{className:'ci-inline'},
-        h('button',{type:'submit',className:'ci-primary',disabled},busy?'处理中…':'保存并启用此账号'),
+      !config.models?note('未指定模型列表时，跟随账号可用的全部模型。'):null),
+      notice?h('p',{className:'ci-note ci-notice',role:'status'},h(Icon,{name:/失败|须|请输入|不能为空/.test(notice)?'warning':notice==='配置已保存。'?'check':'info'}),notice):null,
+      h('footer',{className:'ci-inline ci-footer'},
+        h('button',{type:'submit',className:'ci-primary',disabled},h(Icon,{name:busy?'refresh':'check'}),busy?'处理中…':'保存并启用此账号'),
         h('button',{type:'button',disabled:busy,onClick:()=>{setDraft(null);setKey('');setSelected(null);setProxyUrl(null);setNotice('');}},'取消修改')));
   }
   ctx.inject(['configForms'],child=>{

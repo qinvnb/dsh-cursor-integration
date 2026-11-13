@@ -37,7 +37,36 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 
 // usage-entry.js
+var import_react2 = __toESM(require("react"), 1);
+
+// client/icons.js
 var import_react = __toESM(require("react"), 1);
+var paths = {
+  account: ["M20 21v-2a5 5 0 0 0-5-5H9a5 5 0 0 0-5 5v2", "M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8"],
+  key: ["M15 3a6 6 0 1 0 4 10l3-3-2-2-2 2-2-2 2-2-2-3Z"],
+  network: ["M12 3v6M5 21v-6h14v6M12 15V9M8 3h8v6H8Z", "M2 21h6M16 21h6"],
+  clock: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18", "M12 7v5l3 2"],
+  model: ["M12 2 3 7v10l9 5 9-5V7L12 2Z", "m3 7 9 5 9-5M12 12v10"],
+  refresh: ["M20 10a8 8 0 0 0-14-5L3 8M3 3v5h5", "M4 14a8 8 0 0 0 14 5l3-3M21 21v-5h-5"],
+  check: ["m5 12 4 4L19 6"],
+  warning: ["m12 3 10 18H2L12 3Z", "M12 9v5M12 17h.01"],
+  compress: ["M4 4h6v6H4ZM14 14h6v6h-6Z", "m15 9 5-5M15 4h5v5M9 15l-5 5M4 15v5h5"],
+  checkpoint: ["M6 3h10l3 3v15H5V3h1Z", "M8 3v6h8V3M8 21v-7h8v7"],
+  chart: ["M4 3v18h17", "M8 16v-5M13 16V7M18 16v-8"],
+  plus: ["M12 5v14M5 12h14"],
+  trash: ["M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7"],
+  search: ["M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15", "m16 16 5 5"],
+  info: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18", "M12 11v6M12 7h.01"]
+};
+function Icon({ name, size = 16, ...props }) {
+  return import_react.default.createElement(
+    "svg",
+    { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, ...props },
+    ...(paths[name] ?? paths.info).map((d, i) => import_react.default.createElement("path", { key: i, d }))
+  );
+}
+
+// usage-entry.js
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
 // node_modules/zod/v4/classic/external.js
@@ -20019,11 +20048,12 @@ var styles = `
 .cu-status-label{font-weight:500;flex:none;color:var(--dsw-alias-label-secondary)}
 .cu-status-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;font-size:16px;line-height:1;color:var(--dsw-alias-label-secondary)}
 .cu-status-text{overflow-wrap:anywhere}
-.cu-status-detail{color:var(--dsw-alias-label-tertiary)}
+.cu-status-detail{color:var(--dsw-alias-label-tertiary);border-left:1px solid var(--dsw-alias-border-l3);padding-left:8px}
 .cu-status-error .cu-status-icon{color:var(--dsw-alias-state-error-primary,#c44942)}
 .cu-status-busy .cu-status-icon{color:var(--dsw-alias-state-business-primary)}
-.cu-quota-row{gap:4px 8px}
-.cu-quota-row .cu-pill{padding:0;line-height:inherit;color:var(--dsw-alias-label-secondary)}
+.cu-quota-row{gap:4px 8px;padding:0 2px}
+.cu-quota-row .cu-pill{padding:3px 6px;line-height:inherit;color:var(--dsw-alias-label-secondary)}
+.cu-route{display:inline-flex;align-items:center;gap:5px;color:var(--dsw-alias-label-tertiary)}.cu-route svg{flex:none}
 .cu-quota-row .cu-key-label{font-weight:500}
 .cu-quota-row .cu-ring{width:16px;height:16px}
 
@@ -20031,8 +20061,9 @@ var styles = `
 .cu-active-badge{flex:none;font-size:12px;color:var(--dsw-alias-button-info-fill)}.cu-account-row{padding-top:12px;border-top:.5px solid var(--dsw-alias-border-l2)}.cu-account-row h3{overflow-wrap:anywhere}
 .cu-root{display:flex;flex-direction:column;gap:16px;padding:8px 0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,inherit);font-size:13px;line-height:22px}
 .cu-root *{box-sizing:border-box}.cu-root h2,.cu-root h3{margin:0;font-size:14px;font-weight:500;line-height:22px}.cu-root p{margin:0}.cu-root header p{margin-top:2px}
+.cu-root h2{font-size:16px;font-weight:600}.cu-root h3{display:flex;align-items:center;gap:8px}.cu-root h3 svg{flex:none;color:var(--dsw-alias-label-secondary)}.cu-root button{display:inline-flex;align-items:center;justify-content:center;gap:6px}.cu-root button svg{flex:none}.cu-root .cu-line{flex-wrap:wrap}.cu-root .cu-notice{display:flex;gap:8px;align-items:flex-start}.cu-root .cu-notice svg{flex:none;margin-top:2px}
 .cu-line{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
-.cu-card{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border:.5px solid var(--dsw-alias-settings-card-stroke);border-radius:var(--dsw-radius-xl);background:var(--dsw-alias-settings-card-fill)}
+.cu-card{display:flex;flex-direction:column;gap:12px;padding:16px;border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l3));border-radius:var(--dsw-radius-xl,12px);background:var(--dsw-alias-settings-card-fill)}
 .cu-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}.cu-tag{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
 .cu-meter{padding:4px 0 8px}.cu-meter+.cu-meter{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:12px}.cu-meter b{font-weight:500;font-variant-numeric:tabular-nums}
 .cu-track{height:4px;background:var(--dsw-alias-bg-skeleton);border-radius:var(--dsw-radius-sm);overflow:hidden;margin:8px 0}.cu-track>div{height:100%;background:var(--dsw-alias-button-info-fill);border-radius:inherit}.cu-track>div.cu-exhausted{background:var(--dsw-alias-label-tertiary)}
@@ -20055,13 +20086,14 @@ function openUsagePage(slots) {
 }
 
 // usage-entry.js
-var h = import_react.default.createElement;
+var h = import_react2.default.createElement;
 var money = (n) => n === null || n === void 0 ? "\u672A\u63D0\u4F9B" : "$" + n.toFixed(2);
 var number4 = (n) => typeof n === "number" ? n.toLocaleString("zh-CN") : "\u2014";
 var percent = (n) => typeof n === "number" ? n.toFixed(1).replace(/\.0$/, "") + "%" : "\u2014";
 var date5 = (value) => value ? new Date(value).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "\u2014";
 var quotaNames = { auto: "Cursor \u6A21\u578B", api: "\u5176\u5B83\u6A21\u578B", onDemand: "\u4E2A\u4EBA\u6309\u9700" };
 var tone = (key, value) => typeof value === "number" && value >= 95 ? "danger" : typeof value === "number" && value >= 80 ? "warn" : key;
+var heading = (name, label) => h("h3", null, h(Icon, { name }), label);
 function Ring({ item, size = 14 }) {
   const used = item?.percent, value = typeof used === "number" ? Math.max(0, Math.min(100, used)) : 0;
   return h(
@@ -20075,19 +20107,19 @@ var inject = ["slots", "remote"];
 async function apply(ctx) {
   await ctx.remote.$mount(remoteInfo);
   let store, api;
-  const useUsage = () => import_react.default.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const useUsage = () => import_react2.default.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   function Dock({ useProjection, useSession, useInput, sessionId } = {}) {
     const running = useSession?.((s) => s.running) ?? false;
     const inputModel = useInput?.((s) => typeof s.model === "string" ? s.model : s.model?.id);
-    const [display, setDisplay] = import_react.default.useState(null);
+    const [display, setDisplay] = import_react2.default.useState(null);
     const modelRoute = useProjection?.("cursorContextRoute");
     const compaction = useProjection?.("cursorCompactionStatus");
     const { data, busy, switching, error: error62 } = useUsage();
-    const [keyMenuOpen, setKeyMenuOpen] = import_react.default.useState(false);
-    const [navigationError, setNavigationError] = import_react.default.useState("");
-    const keyRef = import_react.default.useRef(null);
+    const [keyMenuOpen, setKeyMenuOpen] = import_react2.default.useState(false);
+    const [navigationError, setNavigationError] = import_react2.default.useState("");
+    const keyRef = import_react2.default.useRef(null);
     const model = (running ? modelRoute?.model : inputModel || modelRoute?.model)?.split("@")[0];
-    import_react.default.useEffect(() => {
+    import_react2.default.useEffect(() => {
       let alive = true, timer;
       async function read() {
         try {
@@ -20125,14 +20157,14 @@ async function apply(ctx) {
     const checkpoint = display?.sessionId === sessionId ? display.path : null;
     const checkpointBusy = checkpoint?.startsWith("\u6B63\u5728");
     const checkpointFailed = checkpoint?.includes("\u5931\u8D25");
-    const checkpointIcon = checkpointFailed ? "\u26A0" : checkpointBusy ? "\u21BB" : checkpoint?.includes("\u6062\u590D") || checkpoint?.includes("\u590D\u7528") ? "\u2713" : "\u25F7";
+    const checkpointIcon = checkpointFailed ? "warning" : checkpointBusy ? "refresh" : "checkpoint";
     const compressionBusy = compaction?.status === "running";
     const compressionFailed = compaction?.status === "failed";
-    const compressionText = compressionBusy ? "\u6B63\u5728\u751F\u6210\u6458\u8981\uFF0C\u8BF7\u7A0D\u5019" : compressionFailed ? "\u538B\u7F29\u5931\u8D25 \xB7 " + compaction.error : compaction?.summarized ? "\u6458\u8981\u538B\u7F29\u5DF2\u5B8C\u6210 \xB7 " + date5(compaction.summarized) : "\u5C1A\u65E0\u6210\u529F\u7684\u6458\u8981\u538B\u7F29\u8BB0\u5F55";
+    const compressionText = compressionBusy ? "\u6B63\u5728\u751F\u6210\u6458\u8981\uFF0C\u8BF7\u7A0D\u5019" : compressionFailed ? "\u538B\u7F29\u5931\u8D25 \xB7 " + (compaction.error || "\u8BF7\u7A0D\u540E\u91CD\u8BD5") : compaction?.summarized ? "\u6458\u8981\u538B\u7F29\u5DF2\u5B8C\u6210 \xB7 " + date5(compaction.summarized) : "\u5C1A\u65E0\u6210\u529F\u7684\u6458\u8981\u538B\u7F29\u8BB0\u5F55";
     const statusRow = (label, icon, text, tone2, extra) => h(
       "span",
       { className: "cu-status-row cu-status-" + tone2, role: "status" },
-      h("span", { className: "cu-status-icon", "aria-hidden": true }, icon),
+      h(Icon, { name: icon, className: "cu-status-icon" }),
       h("span", { className: "cu-status-label" }, label),
       h("span", { className: "cu-status-text" }, text),
       extra ? h("span", { className: "cu-status-detail" }, extra) : null
@@ -20144,7 +20176,7 @@ async function apply(ctx) {
       cursor && statusRow("\u68C0\u67E5\u70B9", checkpointIcon, checkpoint ?? "\u7B49\u5F85\u672C\u8F6E\u8BF7\u6C42", checkpointFailed ? "error" : checkpointBusy ? "busy" : "normal"),
       cursor && statusRow(
         "\u4E0A\u4E0B\u6587\u538B\u7F29",
-        compressionFailed ? "\u26A0" : compressionBusy ? "\u21BB" : compaction?.summarized ? "\u2713" : "\u25F7",
+        compressionFailed ? "warning" : compressionBusy ? "refresh" : "compress",
         compressionText,
         compressionFailed ? "error" : compressionBusy ? "busy" : "normal",
         compaction?.pruned ? "\u5DE5\u5177\u8F93\u51FA\u6700\u8FD1\u88C1\u526A\u4E8E " + date5(compaction.pruned) : null
@@ -20174,9 +20206,9 @@ async function apply(ctx) {
             "aria-expanded": keyMenuOpen,
             title: "\u5F53\u524D\u5BC6\u94A5\uFF1A" + identity + "\uFF1B\u70B9\u51FB\u5207\u6362\uFF0C\u65B0\u8BF7\u6C42\u751F\u6548",
             onClick: () => setKeyMenuOpen(!keyMenuOpen)
-          }, switching ? "\u5207\u6362\u4E2D\u2026" : identity)
+          }, h(Icon, { name: "key" }), switching ? "\u5207\u6362\u4E2D\u2026" : identity)
         }),
-        modelRoute?.provider === "cursor" && data && h("span", { className: "cu-pill", title: "\u5F53\u524D\u6A21\u578B\u65B0\u4E00\u8F6E\u8BF7\u6C42\u7684\u4F18\u5148\u7EBF\u8DEF" }, (data.routes?.[modelRoute.model?.split("@")[0]] ?? data.defaultRoute) === "direct" ? "\u4F18\u5148\u76F4\u8FDE" : "\u4F18\u5148\u4EE3\u7406"),
+        modelRoute?.provider === "cursor" && data && h("span", { className: "cu-route", title: "\u5F53\u524D\u6A21\u578B\u65B0\u4E00\u8F6E\u8BF7\u6C42\u7684\u4F18\u5148\u7EBF\u8DEF" }, h(Icon, { name: "network" }), (data.routes?.[modelRoute.model?.split("@")[0]] ?? data.defaultRoute) === "direct" ? "\u4F18\u5148\u76F4\u8FDE" : "\u4F18\u5148\u4EE3\u7406"),
         ...[["auto", "Cursor \u6A21\u578B"], ["api", "\u5176\u5B83\u6A21\u578B"], ["onDemand", "\u4E2A\u4EBA\u6309\u9700"]].map(([key, label]) => {
           const item = info?.meters.find((m) => m.key === key), used = item?.percent;
           const tooltip = `${label}\uFF1A\u5DF2\u7528 ${percent(used)}
@@ -20198,15 +20230,15 @@ async function apply(ctx) {
   }
   function Panel() {
     const { data, busy, error: error62 } = useUsage();
-    const [range, setRange] = import_react.default.useState("cycle");
-    const [menuOpen, setMenuOpen] = import_react.default.useState(false);
-    const selectorRef = import_react.default.useRef(null);
-    const [all, setAll] = import_react.default.useState(null);
-    const [allBusy, setAllBusy] = import_react.default.useState(false);
-    const [allError, setAllError] = import_react.default.useState("");
-    const [checks, setChecks] = import_react.default.useState(null);
-    const [checkError, setCheckError] = import_react.default.useState("");
-    import_react.default.useEffect(() => {
+    const [range, setRange] = import_react2.default.useState("cycle");
+    const [menuOpen, setMenuOpen] = import_react2.default.useState(false);
+    const selectorRef = import_react2.default.useRef(null);
+    const [all, setAll] = import_react2.default.useState(null);
+    const [allBusy, setAllBusy] = import_react2.default.useState(false);
+    const [allError, setAllError] = import_react2.default.useState("");
+    const [checks, setChecks] = import_react2.default.useState(null);
+    const [checkError, setCheckError] = import_react2.default.useState("");
+    import_react2.default.useEffect(() => {
       let alive = true, timer;
       const poll = async () => {
         try {
@@ -20274,9 +20306,16 @@ async function apply(ctx) {
       { className: "cu-root" },
       h("style", null, styles),
       h(
+        "header",
+        { className: "cu-line" },
+        h("div", null, h("h2", null, "Cursor \u8D26\u53F7\u6C60"), h("p", { className: "cu-sub" }, "\u8D26\u53F7\u989D\u5EA6 \xB7 \u6A21\u578B\u7EBF\u8DEF \xB7 DSH \u8C03\u7528\u7EDF\u8BA1")),
+        h("button", { type: "button", onClick: refresh, disabled: busy }, h(Icon, { name: "refresh" }), busy ? "\u67E5\u8BE2\u4E2D\u2026" : "\u5237\u65B0")
+      ),
+      error62 ? h("p", { role: "alert", className: "cu-notice" }, h(Icon, { name: "warning" }), error62) : null,
+      h(
         "article",
         { className: "cu-card" },
-        h("h3", null, "\u8D26\u53F7\u6C60\u603B\u4F53\u7528\u91CF"),
+        heading("chart", "\u8D26\u53F7\u6C60\u603B\u4F53\u7528\u91CF"),
         h("div", { className: "cu-quotas" }, ...(data?.totals ?? []).map((item) => h("div", { key: item.key, className: "cu-quota" }, h("span", null, quotaNames[item.key]), h("div", { className: "cu-quota-ring" }, h(Ring, { item, size: 64 }), h("span", { className: "cu-quota-percent" }, percent(item.percent))), h("small", null, (item.weighted ? "\u6309\u989D\u5EA6\u52A0\u6743" : "\u8D26\u53F7\u5E73\u5747") + " \xB7 " + item.count + "/" + item.total + " \u4E2A\u8D26\u53F7")))),
         data?.pool && h("p", { className: "cu-sub" }, (data.pool.manual ? "\u624B\u52A8\u6307\u5B9A" : "\u81EA\u52A8\u9009\u8D26\u53F7") + " \xB7 \u672C\u671F\u5DF2\u8FC7 " + data.pool.cycle.elapsed + " / " + data.pool.cycle.days + " \u5929 \xB7 \u4E2A\u4EBA\u6309\u9700\u8F6F\u4E0A\u9650 " + percent(data.pool.cycle.percent)),
         data?.pool?.warning && h("p", { className: "cu-notice", role: "status" }, data.pool.warning)
@@ -20284,7 +20323,7 @@ async function apply(ctx) {
       h(
         "article",
         { className: "cu-card" },
-        h("div", { className: "cu-line" }, h("h3", null, "\u6A21\u578B\u7EBF\u8DEF"), h("button", { type: "button", className: "cu-button", onClick: toggleChecks }, checks?.running ? "\u505C\u6B62\u68C0\u6D4B" : "\u4E00\u952E\u68C0\u6D4B\u6A21\u578B\u7EBF\u8DEF")),
+        h("div", { className: "cu-line" }, heading("network", "\u6A21\u578B\u7EBF\u8DEF"), h("button", { type: "button", className: "cu-button", onClick: toggleChecks }, h(Icon, { name: "network" }), checks?.running ? "\u505C\u6B62\u68C0\u6D4B" : "\u4E00\u952E\u68C0\u6D4B\u6A21\u578B\u7EBF\u8DEF")),
         h("p", { className: "cu-sub" }, "\u6BCF\u4E2A\u5DF2\u914D\u7F6E\u6A21\u578B\u5206\u522B\u76F4\u8FDE\u548C\u8D70\u4EE3\u7406\u53D1\u9001\u4E00\u6B21\u77ED\u8BF7\u6C42\uFF0C\u4F1A\u6D88\u8017\u8D26\u53F7\u989D\u5EA6\u3002\u76F4\u8FDE\u6210\u529F\u540E\uFF0C\u65B0\u4E00\u8F6E\u4F18\u5148\u76F4\u8FDE\u3002"),
         (checkError || checks?.error) && h("p", { role: "status" }, checkError || checks.error),
         checks?.rows?.length > 0 && h(
@@ -20295,13 +20334,6 @@ async function apply(ctx) {
         )
       ),
       h(
-        "header",
-        { className: "cu-line" },
-        h("div", null, h("h2", null, "Cursor \u8D26\u53F7\u6C60"), h("p", { className: "cu-sub" }, "\u8D26\u53F7\u989D\u5EA6 \xB7 DSH \u8C03\u7528\u7EDF\u8BA1")),
-        h("button", { type: "button", onClick: refresh, disabled: busy }, busy ? "\u67E5\u8BE2\u4E2D\u2026" : "\u5237\u65B0")
-      ),
-      error62 ? h("p", { role: "alert", className: "cu-notice" }, error62) : null,
-      h(
         "article",
         { className: "cu-card" },
         h(
@@ -20310,12 +20342,12 @@ async function apply(ctx) {
           h(
             "div",
             null,
-            h("h3", null, "\u5F53\u524D\u4F7F\u7528\u7684\u5BC6\u94A5"),
+            heading("key", "\u5F53\u524D\u4F7F\u7528\u7684\u5BC6\u94A5"),
             h("p", { className: "cu-sub" }, data?.active ? data.active.label + " \xB7 " + data.active.keyHint : "\u8BFB\u53D6\u4E2D\u2026")
           ),
           h("span", { className: "cu-active-badge" }, "\u4F7F\u7528\u4E2D")
         ),
-        h("p", { className: "cu-sub" }, "\u5207\u6362\u6216\u6DFB\u52A0\u5BC6\u94A5\uFF1A\u8BBE\u7F6E \u2192 Cursor API\u3002\u4EC5\u663E\u793A\u672B\u56DB\u4F4D\uFF0C\u5B8C\u6574\u5BC6\u94A5\u4FDD\u7559\u5728\u51ED\u636E\u914D\u7F6E\u4E2D\u3002")
+        h("p", { className: "cu-sub" }, "\u5207\u6362\u6216\u6DFB\u52A0\u5BC6\u94A5\uFF1A\u8BBE\u7F6E \u2192 Cursor Integration\u3002\u4EC5\u663E\u793A\u672B\u56DB\u4F4D\uFF0C\u5B8C\u6574\u5BC6\u94A5\u4FDD\u7559\u5728\u51ED\u636E\u914D\u7F6E\u4E2D\u3002")
       ),
       h(
         "article",
@@ -20323,8 +20355,8 @@ async function apply(ctx) {
         h(
           "div",
           { className: "cu-line" },
-          h("h3", null, "\u5168\u90E8\u5BC6\u94A5\u7528\u91CF"),
-          h("button", { type: "button", onClick: refreshAll, disabled: allBusy, "aria-busy": allBusy }, allBusy ? "\u6B63\u5728\u67E5\u8BE2\u5168\u90E8\u2026" : "\u4E00\u952E\u67E5\u8BE2\u5168\u90E8\u5BC6\u94A5")
+          heading("account", "\u5168\u90E8\u5BC6\u94A5\u7528\u91CF"),
+          h("button", { type: "button", onClick: refreshAll, disabled: allBusy, "aria-busy": allBusy }, h(Icon, { name: "refresh" }), allBusy ? "\u6B63\u5728\u67E5\u8BE2\u5168\u90E8\u2026" : "\u4E00\u952E\u67E5\u8BE2\u5168\u90E8\u5BC6\u94A5")
         ),
         h("p", { className: "cu-sub" }, "\u6309\u5BC6\u94A5\u5206\u522B\u67E5\u8BE2\u5F53\u524D\u8D26\u671F\uFF0C\u4E0D\u4F1A\u5207\u6362\u5F53\u524D\u5BC6\u94A5\u3002\u540C\u4E00 Cursor \u8D26\u53F7\u7684\u591A\u4E2A\u5BC6\u94A5\u53EF\u80FD\u663E\u793A\u76F8\u540C\u989D\u5EA6\uFF0C\u4E0D\u53E0\u52A0\u3002"),
         allError ? h("p", { className: "cu-notice", role: "alert" }, allError) : null,
@@ -20346,10 +20378,10 @@ async function apply(ctx) {
       h(
         "article",
         { className: "cu-card" },
-        h("div", { className: "cu-line" }, h("h3", null, "\u8D26\u53F7\u5957\u9910"), h("span", { className: "cu-tag" }, { enterprise: "\u56E2\u961F\u5957\u9910", pro: "Pro", pro_plus: "Pro+", ultra: "Ultra", free: "\u514D\u8D39\u5957\u9910" }[account?.data?.membership] ?? account?.data?.membership ?? "\u8BFB\u53D6\u4E2D")),
+        h("div", { className: "cu-line" }, heading("account", "\u8D26\u53F7\u5957\u9910"), h("span", { className: "cu-tag" }, { enterprise: "\u56E2\u961F\u5957\u9910", pro: "Pro", pro_plus: "Pro+", ultra: "Ultra", free: "\u514D\u8D39\u5957\u9910" }[account?.data?.membership] ?? account?.data?.membership ?? "\u8BFB\u53D6\u4E2D")),
         account?.error ? h("p", { className: "cu-notice", role: "status" }, account.error, account.data ? " \u4EE5\u4E0B\u4E3A\u4E0A\u6B21\u6210\u529F\u7684\u6570\u636E\u3002" : "") : null,
         account?.data ? h(
-          import_react.default.Fragment,
+          import_react2.default.Fragment,
           null,
           h("p", { className: "cu-sub" }, "\u8D26\u671F ", date5(account.data.periodStart), " \u2014 ", date5(account.data.periodEnd)),
           h("div", { className: "cu-quotas" }, ...account.data.meters.map(meter)),
@@ -20362,7 +20394,7 @@ async function apply(ctx) {
         h(
           "div",
           { className: "cu-line" },
-          h("h3", null, "DSH \u5185\u7684 Cursor"),
+          heading("chart", "DSH \u8C03\u7528\u7EDF\u8BA1"),
           h(import_dsh_client_ui_primitives.Menu, {
             open: menuOpen,
             onClose: () => setMenuOpen(false),
@@ -20414,32 +20446,39 @@ async function apply(ctx) {
 }
 
 // client/settings.js
-var import_react2 = __toESM(require("react"), 1);
-var h2 = import_react2.default.createElement;
+var import_react3 = __toESM(require("react"), 1);
+var h2 = import_react3.default.createElement;
 var sheet = `
-.ci-settings{display:grid;gap:16px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.6}
+.ci-settings{display:grid;gap:16px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:22px}
+.ci-settings *{box-sizing:border-box}.ci-settings h2,.ci-settings h3,.ci-settings p{margin:0}.ci-settings h2{font-size:16px;font-weight:600}.ci-settings h3{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.ci-settings h3 svg{color:var(--dsw-alias-label-secondary);flex:none}
+.ci-settings .ci-section{display:grid;gap:12px;padding:16px;border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l3));border-radius:var(--dsw-radius-xl,12px);background:var(--dsw-alias-settings-card-fill)}
+.ci-settings .ci-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ci-settings .ci-footer{padding-top:4px}.ci-settings .ci-note{display:flex;align-items:flex-start;gap:8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.ci-note svg{flex:none;margin-top:1px}
+.ci-settings .ci-notice{padding:10px 12px;border-radius:var(--dsw-radius-md,6px);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
+@media(max-width:560px){.ci-settings .ci-grid{grid-template-columns:1fr}.ci-settings .ci-section{padding:12px}}
 .ci-settings input,.ci-settings select,.ci-settings button{font:inherit;color:inherit;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,6px);padding:6px 10px}
-.ci-settings label{display:grid;gap:4px}.ci-settings .ci-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ci-settings label{display:grid;gap:6px;min-width:0}.ci-settings label>input:not([type=checkbox]){width:100%;min-width:0}.ci-settings .ci-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ci-settings .ci-inline>select{flex:1;min-width:120px}.ci-settings button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px}.ci-settings input:focus-visible,.ci-settings select:focus-visible,.ci-settings button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .ci-settings .ci-inline label{display:flex;align-items:center}.ci-settings input[type=checkbox]{accent-color:var(--dsw-alias-state-business-primary)}
 .ci-settings .ci-model{display:grid;gap:8px;padding:12px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,6px)}
 .ci-settings small{color:var(--dsw-alias-label-tertiary)}.ci-settings button{cursor:pointer}.ci-settings button:disabled{opacity:.5;cursor:default}
 .ci-settings button:hover:enabled{background:var(--dsw-alias-interactive-bg-hover)}
-.ci-settings .ci-primary{background:var(--dsw-alias-state-business-primary);color:white}.ci-settings .ci-error{color:var(--dsw-alias-state-error-primary)}
+.ci-settings .ci-primary{background:var(--dsw-alias-state-business-primary);color:white}.ci-settings .ci-primary:hover:enabled{filter:brightness(.95);background:var(--dsw-alias-state-business-primary)}.ci-settings .ci-error{color:var(--dsw-alias-state-error-primary)}
 `;
+var heading2 = (name, label) => h2("h3", null, h2(Icon, { name }), label);
+var note = (text) => h2("p", { className: "ci-note" }, h2(Icon, { name: "info" }), text);
 function modelRow(row) {
   return typeof row === "string" ? { id: row } : structuredClone(row);
 }
 function mountSettings(ctx) {
   function Panel({ scope, view }) {
-    const snapshot = import_react2.default.useSyncExternalStore((fn) => scope.subscribe(fn), () => scope.getSnapshot());
-    const [draft, setDraft] = import_react2.default.useState(null);
-    const [key, setKey] = import_react2.default.useState("");
-    const [notice, setNotice] = import_react2.default.useState("");
-    const [busy, setBusy] = import_react2.default.useState(false);
-    const [catalog, setCatalog] = import_react2.default.useState([]);
-    const [query, setQuery] = import_react2.default.useState("");
-    const [proxyUrl, setProxyUrl] = import_react2.default.useState(null);
-    const [selected, setSelected] = import_react2.default.useState(null);
+    const snapshot = import_react3.default.useSyncExternalStore((fn) => scope.subscribe(fn), () => scope.getSnapshot());
+    const [draft, setDraft] = import_react3.default.useState(null);
+    const [key, setKey] = import_react3.default.useState("");
+    const [notice, setNotice] = import_react3.default.useState("");
+    const [busy, setBusy] = import_react3.default.useState(false);
+    const [catalog, setCatalog] = import_react3.default.useState([]);
+    const [query, setQuery] = import_react3.default.useState("");
+    const [proxyUrl, setProxyUrl] = import_react3.default.useState(null);
+    const [selected, setSelected] = import_react3.default.useState(null);
     if (view === "summary") return "Cursor Integration";
     const saved = snapshot.value?.providers?.cursor ?? {};
     const config2 = draft ?? {
@@ -20542,96 +20581,120 @@ function mountSettings(ctx) {
       "form",
       { className: "ci-settings", onSubmit: save },
       h2("style", null, sheet),
-      h2("h3", null, "Cursor Integration"),
+      h2("header", null, h2("h2", null, "Cursor Integration"), h2("p", { className: "ci-note" }, "\u7BA1\u7406\u8D26\u53F7\u3001\u8FDE\u63A5\u548C\u6A21\u578B\uFF1B\u8D26\u53F7\u7528\u91CF\u4E0E\u7EBF\u8DEF\u68C0\u6D4B\u4F4D\u4E8E\u300CCursor \u8D26\u53F7\u6C60\u300D\u3002")),
       h2(
-        "div",
-        { className: "ci-inline" },
+        "section",
+        { className: "ci-section" },
+        heading2("key", "\u8D26\u53F7\u4E0E\u51ED\u636E"),
         h2(
-          "select",
-          { value: ref, disabled, onChange: (event) => {
-            setSelected(event.target.value);
+          "div",
+          { className: "ci-inline" },
+          h2(
+            "select",
+            { value: ref, disabled, onChange: (event) => {
+              setSelected(event.target.value);
+              setKey("");
+            } },
+            ...config2.accounts.map((row) => h2("option", { key: row.apiKeyEnv, value: row.apiKeyEnv }, row.label))
+          ),
+          h2("button", { type: "button", disabled, onClick: addAccount }, h2(Icon, { name: "plus" }), "\u6DFB\u52A0\u8D26\u53F7"),
+          h2("button", { type: "button", disabled: disabled || config2.accounts.length < 2, onClick: () => {
+            const accounts = config2.accounts.filter((row) => row.apiKeyEnv !== ref);
+            change({ accounts, apiKeyEnv: accounts[0].apiKeyEnv });
+            setSelected(accounts[0].apiKeyEnv);
             setKey("");
-          } },
-          ...config2.accounts.map((row) => h2("option", { key: row.apiKeyEnv, value: row.apiKeyEnv }, row.label))
+          } }, h2(Icon, { name: "trash" }), "\u79FB\u9664\u6B64\u8D26\u53F7")
         ),
-        h2("button", { type: "button", disabled, onClick: addAccount }, "\u6DFB\u52A0\u8D26\u53F7"),
-        h2("button", { type: "button", disabled: disabled || config2.accounts.length < 2, onClick: () => {
-          const accounts = config2.accounts.filter((row) => row.apiKeyEnv !== ref);
-          change({ accounts, apiKeyEnv: accounts[0].apiKeyEnv });
-          setSelected(accounts[0].apiKeyEnv);
-          setKey("");
-        } }, "\u79FB\u9664\u6B64\u8D26\u53F7")
+        h2(
+          "div",
+          { className: "ci-grid" },
+          field("\u8D26\u53F7\u540D\u79F0", { value: account?.label ?? "", onChange: (event) => editAccount({ label: event.target.value }) }),
+          field("Cursor API Key", {
+            type: "password",
+            autoComplete: "new-password",
+            value: key,
+            placeholder: account?.configured ? "\u5DF2\u4FDD\u5B58\uFF0C\u7559\u7A7A\u7EE7\u7EED\u4F7F\u7528" : "\u7C98\u8D34\u6B64\u8D26\u53F7\u7684 API Key",
+            onChange: (event) => setKey(event.target.value)
+          })
+        ),
+        note("\u5BC6\u94A5\u4FDD\u5B58\u5728 DSH \u51ED\u636E\u670D\u52A1\u3002\u4FDD\u5B58\u540E\uFF0C\u65B0\u8BF7\u6C42\u4F7F\u7528\u5F53\u524D\u8D26\u53F7\u3002")
       ),
-      field("\u8D26\u53F7\u540D\u79F0", { value: account?.label ?? "", onChange: (event) => editAccount({ label: event.target.value }) }),
-      field("Cursor API Key", {
-        type: "password",
-        autoComplete: "new-password",
-        value: key,
-        placeholder: account?.configured ? "\u5DF2\u4FDD\u5B58\uFF0C\u7559\u7A7A\u7EE7\u7EED\u4F7F\u7528" : "\u7C98\u8D34\u6B64\u8D26\u53F7\u7684 API Key",
-        onChange: (event) => setKey(event.target.value)
-      }),
-      h2("small", null, "\u5BC6\u94A5\u5199\u5165 DSH \u51ED\u636E\u670D\u52A1\uFF0C\u8D26\u53F7\u914D\u7F6E\u53EA\u4FDD\u5B58\u5F15\u7528\u3002\u4FDD\u5B58\u540E\u65B0\u8BF7\u6C42\u4F7F\u7528\u5F53\u524D\u8D26\u53F7\u3002"),
-      field("\u4EE3\u7406\u5730\u5740\uFF08HTTP \u6216\u6DF7\u5408\u7AEF\u53E3\uFF09", { value: proxyUrl ?? snapshot.value?.proxyUrl ?? "", onChange: (event) => setProxyUrl(event.target.value) }),
-      h2("small", null, "\u53EA\u4E3A Cursor SDK \u548C\u76F8\u5173\u67E5\u8BE2\u4F7F\u7528\u6B64\u4EE3\u7406\uFF1B\u7559\u7A7A\u4F7F\u7528\u76F4\u63A5\u8FDE\u63A5\u3002"),
-      field("\u540E\u53F0\u7528\u91CF\u5237\u65B0\u95F4\u9694\uFF08\u5206\u949F\uFF09", {
-        type: "number",
-        min: 1,
-        max: 1440,
-        value: config2.usageRefreshMinutes ?? 5,
-        onChange: (event) => change({ usageRefreshMinutes: event.target.value })
-      }),
       h2(
-        "div",
-        { className: "ci-inline" },
-        h2("button", { type: "button", disabled, onClick: discover }, "\u83B7\u53D6\u6A21\u578B\u76EE\u5F55"),
-        h2("button", { type: "button", disabled, onClick: () => change({ models: void 0 }) }, "\u8DDF\u968F\u8D26\u53F7\u5168\u90E8\u6A21\u578B")
+        "section",
+        { className: "ci-section" },
+        heading2("network", "\u8FDE\u63A5\u4E0E\u5237\u65B0"),
+        h2(
+          "div",
+          { className: "ci-grid" },
+          field("\u4EE3\u7406\u5730\u5740\uFF08HTTP \u6216\u6DF7\u5408\u7AEF\u53E3\uFF09", { value: proxyUrl ?? snapshot.value?.proxyUrl ?? "", onChange: (event) => setProxyUrl(event.target.value) }),
+          field("\u540E\u53F0\u7528\u91CF\u5237\u65B0\u95F4\u9694\uFF08\u5206\u949F\uFF09", {
+            type: "number",
+            min: 1,
+            max: 1440,
+            value: config2.usageRefreshMinutes ?? 5,
+            onChange: (event) => change({ usageRefreshMinutes: event.target.value })
+          })
+        ),
+        note("\u4EE3\u7406\u53EA\u4F5C\u7528\u4E8E Cursor SDK \u548C\u76F8\u5173\u67E5\u8BE2\uFF1B\u7559\u7A7A\u76F4\u8FDE\u3002\u7528\u91CF\u5728\u540E\u53F0\u5B9A\u65F6\u5237\u65B0\uFF0C\u8BF7\u6C42\u8BFB\u53D6\u5DF2\u4FDD\u5B58\u7684\u8C03\u5EA6\u7ED3\u679C\u3002")
       ),
-      field("\u641C\u7D22\u6A21\u578B", { value: query, onChange: (event) => setQuery(event.target.value) }),
-      ...catalog.filter((row) => (row.name + " " + row.id).toLowerCase().includes(query.toLowerCase())).filter((row) => !config2.models?.some((saved2) => saved2.id === row.id)).map((row) => h2(
-        "div",
-        { key: row.id, className: "ci-inline" },
-        h2("span", null, row.name ?? row.id),
-        h2("button", { type: "button", disabled, onClick: () => change({ models: [...config2.models ?? [], { id: row.id, name: "Cursor " + (row.name ?? row.id) }] }) }, "\u6DFB\u52A0")
-      )),
-      ...(config2.models ?? []).filter((row) => (row.id + " " + (row.name ?? "")).toLowerCase().includes(query.toLowerCase())).map((row) => h2(
-        "div",
-        { key: row.id, className: "ci-model" },
+      h2(
+        "section",
+        { className: "ci-section" },
+        heading2("model", "\u6A21\u578B\u76EE\u5F55"),
         h2(
           "div",
           { className: "ci-inline" },
-          h2("strong", null, row.id),
-          h2("button", { type: "button", disabled, onClick: () => change({ models: config2.models.filter((m) => m.id !== row.id) }) }, "\u79FB\u9664")
+          h2("button", { type: "button", disabled, onClick: discover }, h2(Icon, { name: "refresh" }), "\u83B7\u53D6\u6A21\u578B\u76EE\u5F55"),
+          h2("button", { type: "button", disabled, onClick: () => change({ models: void 0 }) }, "\u8DDF\u968F\u8D26\u53F7\u5168\u90E8\u6A21\u578B")
         ),
-        field("\u663E\u793A\u540D\u79F0", { value: row.name ?? "", onChange: (event) => editModel(row.id, { name: event.target.value }) }),
-        field("\u4E0A\u4E0B\u6587\u5BB9\u91CF\uFF08Token\uFF09", {
-          type: "number",
-          min: 1,
-          value: row.contextWindow ?? "",
-          onChange: (event) => editModel(row.id, { contextWindow: event.target.value ? Number(event.target.value) : void 0 })
-        }),
-        h2(
+        field("\u641C\u7D22\u6A21\u578B", { value: query, onChange: (event) => setQuery(event.target.value) }),
+        ...catalog.filter((row) => (row.name + " " + row.id).toLowerCase().includes(query.toLowerCase())).filter((row) => !config2.models?.some((saved2) => saved2.id === row.id)).map((row) => h2(
           "div",
-          { className: "ci-inline" },
-          ...["text", "image"].map((type) => h2(
-            "label",
-            { key: type },
-            h2("input", {
-              type: "checkbox",
-              disabled: disabled || type === "text",
-              checked: type === "text" || row.inputModalities?.includes("image") === true,
-              onChange: (event) => editModel(row.id, { inputModalities: event.target.checked ? ["text", "image"] : ["text"] })
-            }),
-            type === "text" ? "\u6587\u5B57" : "\u56FE\u7247"
-          )),
-          h2("label", null, h2("input", { type: "checkbox", disabled, checked: row.fast === true, onChange: (event) => editModel(row.id, { fast: event.target.checked }) }), "Fast")
-        ),
-        !row.inputModalities ? h2("small", null, "\u56FE\u7247\u80FD\u529B\u672A\u58F0\u660E\uFF0C\u5F53\u524D\u6309\u6587\u5B57\u5904\u7406\u3002") : null
-      )),
-      notice ? h2("p", { role: "status" }, notice) : null,
+          { key: row.id, className: "ci-inline" },
+          h2("span", null, row.name ?? row.id),
+          h2("button", { type: "button", disabled, onClick: () => change({ models: [...config2.models ?? [], { id: row.id, name: "Cursor " + (row.name ?? row.id) }] }) }, "\u6DFB\u52A0")
+        )),
+        ...(config2.models ?? []).filter((row) => (row.id + " " + (row.name ?? "")).toLowerCase().includes(query.toLowerCase())).map((row) => h2(
+          "div",
+          { key: row.id, className: "ci-model" },
+          h2(
+            "div",
+            { className: "ci-inline" },
+            h2("strong", null, row.id),
+            h2("button", { type: "button", disabled, onClick: () => change({ models: config2.models.filter((m) => m.id !== row.id) }) }, "\u79FB\u9664")
+          ),
+          field("\u663E\u793A\u540D\u79F0", { value: row.name ?? "", onChange: (event) => editModel(row.id, { name: event.target.value }) }),
+          field("\u4E0A\u4E0B\u6587\u5BB9\u91CF\uFF08Token\uFF09", {
+            type: "number",
+            min: 1,
+            value: row.contextWindow ?? "",
+            onChange: (event) => editModel(row.id, { contextWindow: event.target.value ? Number(event.target.value) : void 0 })
+          }),
+          h2(
+            "div",
+            { className: "ci-inline" },
+            ...["text", "image"].map((type) => h2(
+              "label",
+              { key: type },
+              h2("input", {
+                type: "checkbox",
+                disabled: disabled || type === "text",
+                checked: type === "text" || row.inputModalities?.includes("image") === true,
+                onChange: (event) => editModel(row.id, { inputModalities: event.target.checked ? ["text", "image"] : ["text"] })
+              }),
+              type === "text" ? "\u6587\u5B57" : "\u56FE\u7247"
+            )),
+            h2("label", null, h2("input", { type: "checkbox", disabled, checked: row.fast === true, onChange: (event) => editModel(row.id, { fast: event.target.checked }) }), "Fast")
+          ),
+          !row.inputModalities ? h2("small", null, "\u56FE\u7247\u80FD\u529B\u672A\u58F0\u660E\uFF0C\u5F53\u524D\u6309\u6587\u5B57\u5904\u7406\u3002") : null
+        )),
+        !config2.models ? note("\u672A\u6307\u5B9A\u6A21\u578B\u5217\u8868\u65F6\uFF0C\u8DDF\u968F\u8D26\u53F7\u53EF\u7528\u7684\u5168\u90E8\u6A21\u578B\u3002") : null
+      ),
+      notice ? h2("p", { className: "ci-note ci-notice", role: "status" }, h2(Icon, { name: /失败|须|请输入|不能为空/.test(notice) ? "warning" : notice === "\u914D\u7F6E\u5DF2\u4FDD\u5B58\u3002" ? "check" : "info" }), notice) : null,
       h2(
-        "div",
-        { className: "ci-inline" },
-        h2("button", { type: "submit", className: "ci-primary", disabled }, busy ? "\u5904\u7406\u4E2D\u2026" : "\u4FDD\u5B58\u5E76\u542F\u7528\u6B64\u8D26\u53F7"),
+        "footer",
+        { className: "ci-inline ci-footer" },
+        h2("button", { type: "submit", className: "ci-primary", disabled }, h2(Icon, { name: busy ? "refresh" : "check" }), busy ? "\u5904\u7406\u4E2D\u2026" : "\u4FDD\u5B58\u5E76\u542F\u7528\u6B64\u8D26\u53F7"),
         h2("button", { type: "button", disabled: busy, onClick: () => {
           setDraft(null);
           setKey("");
@@ -20660,8 +20723,8 @@ function mountSettings(ctx) {
 }
 
 // client/context.js
-var import_react3 = __toESM(require("react"), 1);
-var h3 = import_react3.default.createElement;
+var import_react4 = __toESM(require("react"), 1);
+var h3 = import_react4.default.createElement;
 function mountContext(ctx) {
   function CursorContext({ useProjection }) {
     const route = useProjection("cursorContextRoute");
@@ -20690,7 +20753,7 @@ function mountContext(ctx) {
     return h3(
       "details",
       { className: "dcp-cursor-context" },
-      h3("style", null, `body:has(.dcp-cursor-context) [data-dsh-claude-context-meter],body:has(.dcp-cursor-context) [data-dsh-claude-context-panel]{display:none!important}[data-composer-dock]:has(.dcp-cursor-context)>span:has(button[aria-haspopup="dialog"]:is([aria-label^="\u4E0A\u4E0B\u6587\u5DF2\u7528 "],[aria-label$=" of context used"])){display:none!important}.dcp-cursor-context{position:relative;flex-basis:100%;width:100%;font-family:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.dcp-cursor-context>summary{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;width:fit-content;max-width:100%;margin-inline:auto;min-height:26px;box-sizing:border-box;padding:3px 8px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;cursor:pointer;list-style:none}.dcp-cursor-context>summary:hover,.dcp-cursor-context[open]>summary{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>summary>svg{flex:none;width:16px;height:16px}.dcp-context-label{font-weight:500;color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>summary::-webkit-details-marker{display:none}.dcp-cursor-context>summary:focus-visible{outline:2px solid currentColor;border-radius:5px}.dcp-context-origin{font-size:inherit;color:var(--dsw-alias-label-tertiary)}.dcp-context-panel{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:50;width:340px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:14px;border:1px solid var(--dsw-alias-border-default,#8885);border-radius:12px;background:var(--dsw-alias-background-primary,Canvas);color:var(--dsw-alias-label-primary,CanvasText);box-shadow:0 6px 24px #0002}.dcp-context-row{display:grid;grid-template-columns:minmax(100px,1fr) auto 62px;gap:8px;padding:6px 0;align-items:center}.dcp-context-row>span:last-child{text-align:right}.dcp-context-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}.dcp-context-note{font-size:11px;line-height:1.6;margin-top:8px;color:var(--dsw-alias-label-tertiary)}`),
+      h3("style", null, `body:has(.dcp-cursor-context) [data-dsh-claude-context-meter],body:has(.dcp-cursor-context) [data-dsh-claude-context-panel]{display:none!important}[data-composer-dock]:has(.dcp-cursor-context)>span:has(button[aria-haspopup="dialog"]:is([aria-label^="\u4E0A\u4E0B\u6587\u5DF2\u7528 "],[aria-label$=" of context used"])){display:none!important}.dcp-cursor-context{position:relative;flex-basis:100%;width:100%;font-family:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.dcp-cursor-context>summary{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;width:fit-content;max-width:100%;margin-inline:auto;min-height:26px;box-sizing:border-box;padding:3px 8px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;cursor:pointer;list-style:none}.dcp-cursor-context>summary:hover,.dcp-cursor-context[open]>summary{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>summary>svg{flex:none;width:16px;height:16px}.dcp-context-label{font-weight:500;color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>summary::-webkit-details-marker{display:none}.dcp-cursor-context>summary:focus-visible{outline:2px solid currentColor;border-radius:5px}.dcp-context-origin{font-size:inherit;color:var(--dsw-alias-label-tertiary)}.dcp-context-panel{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:50;width:340px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:14px;border:1px solid var(--dsw-alias-border-default,#8885);border-radius:12px;background:var(--dsw-alias-background-primary,Canvas);color:var(--dsw-alias-label-primary,CanvasText);box-shadow:0 6px 24px #0002}.dcp-context-heading{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.dcp-context-heading svg{color:var(--dsw-alias-label-secondary)}.dcp-context-row{display:grid;grid-template-columns:minmax(100px,1fr) auto 62px;gap:8px;padding:6px 0;align-items:center}.dcp-context-row>span:last-child{text-align:right}.dcp-context-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}.dcp-context-note{font-size:12px;line-height:18px;margin-top:8px;color:var(--dsw-alias-label-tertiary)}`),
       h3(
         "summary",
         { "aria-label": "\u5C55\u5F00\u672C\u5730\u4E0A\u4E0B\u6587\u660E\u7EC6\uFF1A" + label },
@@ -20702,10 +20765,10 @@ function mountContext(ctx) {
       h3(
         "div",
         { className: "dcp-context-panel" },
-        h3("strong", null, "\u4E0A\u4E0B\u6587\u5360\u7528\u660E\u7EC6"),
-        h3("div", { className: "dcp-context-row" }, h3("span", null, "\u603B\u4E0A\u4E0B\u6587"), h3("span", null, known ? used.toLocaleString() + " tokens" : "\u672A\u77E5"), h3("span", null, percentage(used))),
-        ...parts.map((part) => h3("div", { key: part.name, className: "dcp-context-row" }, h3("span", null, h3("i", { className: "dcp-context-dot", style: { background: part.color }, "aria-hidden": true }), part.name), h3("span", null, Number.isFinite(part.tokens) ? part.tokens.toLocaleString() + " tokens" : "\u672A\u77E5"), h3("span", null, percentage(part.tokens)))),
-        h3("div", { className: "dcp-context-note" }, "\u5BB9\u91CF\uFF1A" + (Number.isFinite(capacity) ? capacity.toLocaleString() + " tokens" : "\u672A\u77E5") + "\u3002\u5404\u9879\u767E\u5206\u6BD4\u5747\u5360\u603B\u5BB9\u91CF\u3002"),
+        h3("strong", { className: "dcp-context-heading" }, h3(Icon, { name: "chart" }), "\u4E0A\u4E0B\u6587\u5360\u7528\u660E\u7EC6"),
+        h3("div", { className: "dcp-context-row" }, h3("span", null, "\u603B\u4E0A\u4E0B\u6587"), h3("span", null, known ? used.toLocaleString() + " Token" : "\u672A\u77E5"), h3("span", null, percentage(used))),
+        ...parts.map((part) => h3("div", { key: part.name, className: "dcp-context-row" }, h3("span", null, h3("i", { className: "dcp-context-dot", style: { background: part.color }, "aria-hidden": true }), part.name), h3("span", null, Number.isFinite(part.tokens) ? part.tokens.toLocaleString() + " Token" : "\u672A\u77E5"), h3("span", null, percentage(part.tokens)))),
+        h3("div", { className: "dcp-context-note" }, "\u5BB9\u91CF\uFF1A" + (Number.isFinite(capacity) ? capacity.toLocaleString() + " Token" : "\u672A\u77E5") + "\u3002\u5404\u9879\u767E\u5206\u6BD4\u5747\u5360\u603B\u5BB9\u91CF\u3002"),
         h3("div", { className: "dcp-context-note" }, "\u672C\u5730\u4F30\u7B97\uFF0C\u4E0D\u542B Cursor SDK \u5185\u90E8\u63D0\u793A\u548C\u9690\u85CF\u5386\u53F2\uFF1B\u539F\u751F\u8F6C\u76D8\u6765\u6E90\u4E0D\u540C\u3002")
       )
     );
