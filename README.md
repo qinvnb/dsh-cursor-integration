@@ -17,7 +17,7 @@
 
 需要 Node.js **24.9 或以上**、DSH LLM 接口 **0.2.1-rc.3 或以上**，以及拥有相应模型权限的 Cursor API Key。当前使用 `@cursor/sdk@1.0.40`。
 
-1. 在 DSH 插件管理器中填写 `.tgz` 安装包的本机绝对路径。
+1. 从 [GitHub Releases](https://github.com/qinvnb/dsh-cursor-integration/releases/latest) 下载 `.tgz` 安装包，再在 DSH 插件管理器中填写它的本机绝对路径。
 2. 打开设置中的 **Cursor 集成**，保存账号名称和 API Key。
 3. 获取模型目录，添加需要的型号并保存。
 4. 按需设置代理地址和用量刷新间隔。
