@@ -30,7 +30,7 @@ export function mountSettings(ctx) {
     const [query,setQuery]=React.useState('');
     const [proxyUrl,setProxyUrl]=React.useState(null);
     const [selected,setSelected]=React.useState(null);
-    if(view==='summary')return 'Cursor Integration';
+    if(view==='summary')return 'Cursor 集成';
     const saved=snapshot.value?.providers?.cursor??{};
     const config=draft??{
       ...saved,models:saved.models?.map(modelRow),
@@ -100,7 +100,7 @@ export function mountSettings(ctx) {
     }
     return h('form',{className:'ci-settings',onSubmit:save},
       h('style',null,sheet),
-      h('header',null,h('h2',null,'Cursor Integration'),h('p',{className:'ci-note'},'管理账号、连接和模型；账号用量与线路检测位于「Cursor 账号池」。')),
+      h('header',null,h('h2',null,'Cursor 集成'),h('p',{className:'ci-note'},'管理账号、连接和模型；账号用量与线路检测位于「Cursor 用量」。')),
       h('section',{className:'ci-section'},heading('key','账号与凭据'),
       h('div',{className:'ci-inline'},
         h('select',{value:ref,disabled,onChange:event=>{setSelected(event.target.value);setKey('');}},
@@ -118,7 +118,7 @@ export function mountSettings(ctx) {
       note('密钥保存在 DSH 凭据服务。保存后，新请求使用当前账号。')),
       h('section',{className:'ci-section'},heading('network','连接与刷新'),
       h('div',{className:'ci-grid'},
-      field('代理地址（HTTP 或混合端口）',{value:proxyUrl??snapshot.value?.proxyUrl??'',onChange:event=>setProxyUrl(event.target.value)}),
+      field('Cursor SDK 代理地址',{placeholder:'http://127.0.0.1:7890',value:proxyUrl??snapshot.value?.proxyUrl??'',onChange:event=>setProxyUrl(event.target.value)}),
       field('后台用量刷新间隔（分钟）',{type:'number',min:1,max:1440,value:config.usageRefreshMinutes??5,
         onChange:event=>change({usageRefreshMinutes:event.target.value})})),
       note('代理只作用于 Cursor SDK 和相关查询；留空直连。用量在后台定时刷新，请求读取已保存的调度结果。')),
@@ -158,7 +158,7 @@ export function mountSettings(ctx) {
         name:'plugins.bundle.config',key:'dsh-cursor-integration',
       },props=>h(Panel,{...props,scope:forms.get('cursor-integration')})));
       child.slots.inject('settings.section',()=>child.slots.register({
-        name:'settings.section',id:'cursor-integration-api',order:24,label:()=> 'Cursor Integration',
+        name:'settings.section',id:'cursor-integration-api',order:24,label:()=> 'Cursor 集成',icon:()=>h(Icon,{name:'model'}),
       },props=>h(Panel,{...props,scope:forms.get('cursor-integration'),view:'editor'})));
     }));
   });

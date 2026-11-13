@@ -37,7 +37,7 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 
 // usage-entry.js
-var import_react2 = __toESM(require("react"), 1);
+var import_react3 = __toESM(require("react"), 1);
 
 // client/icons.js
 var import_react = __toESM(require("react"), 1);
@@ -63,6 +63,82 @@ function Icon({ name, size = 16, ...props }) {
     "svg",
     { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, ...props },
     ...(paths[name] ?? paths.info).map((d, i) => import_react.default.createElement("path", { key: i, d }))
+  );
+}
+
+// client/popup.js
+var import_react2 = __toESM(require("react"), 1);
+
+// client/dismiss.js
+function attachContextDismiss(root) {
+  const document = root.ownerDocument;
+  function close(event) {
+    if (event.type === "keydown") {
+      if (event.key !== "Escape") return;
+      root.open = false;
+      event.preventDefault();
+      root.querySelector("summary")?.focus({ preventScroll: true });
+    } else if (!root.contains(event.target)) root.open = false;
+    if (!root.open) listen(false);
+  }
+  function listen(enabled) {
+    const method = enabled ? "addEventListener" : "removeEventListener";
+    for (const type of ["pointerdown", "focusin", "keydown"]) document[method](type, close, true);
+  }
+  const toggle = () => listen(root.open);
+  root.addEventListener("toggle", toggle);
+  toggle();
+  return () => {
+    root.removeEventListener("toggle", toggle);
+    listen(false);
+  };
+}
+
+// client/popup.js
+var h = import_react2.default.createElement;
+var styles = `
+.ci-popup{display:inline-flex;min-width:0;max-width:100%;font:inherit;color:inherit}
+.ci-popup>summary{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:26px;box-sizing:border-box;padding:3px 6px;border:0;border-radius:var(--dsw-radius-sm,4px);background:transparent;color:inherit;font:inherit;font-variant-numeric:tabular-nums;cursor:pointer;list-style:none}
+.ci-popup>summary::-webkit-details-marker{display:none}.ci-popup>summary:hover,.ci-popup[open]>summary{background:var(--dsw-alias-interactive-bg-hover)}.ci-popup>summary:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.ci-popup>summary svg{flex:none;width:16px;height:16px}
+.ci-popup-panel{position:fixed;z-index:1000;width:340px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;box-sizing:border-box;padding:14px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-xl,12px);background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,Canvas));color:var(--dsw-alias-label-primary,CanvasText);box-shadow:0 6px 24px #0002;font-size:12px;line-height:20px;text-align:left}
+.ci-popup-heading{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;margin-bottom:8px}.ci-popup-heading svg{flex:none;color:var(--dsw-alias-label-secondary)}
+.ci-popup-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:5px 0}.ci-popup-row>span:first-child{color:var(--dsw-alias-label-secondary)}.ci-popup-row>span:last-child{font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:right}.ci-popup-note{margin-top:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}.ci-popup-action{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:var(--dsw-radius-sm,4px);padding:4px 6px;margin-top:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer}.ci-popup-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
+`;
+function Popup({ label, trigger, children }) {
+  const root = import_react2.default.useRef(null);
+  import_react2.default.useEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    const cleanup = attachContextDismiss(element);
+    const document = element.ownerDocument, view = document.defaultView;
+    const position = () => {
+      if (!element.open) return;
+      const panel = element.querySelector(".ci-popup-panel"), anchor2 = element.querySelector("summary").getBoundingClientRect();
+      const left = Math.max(12, Math.min(view.innerWidth - panel.offsetWidth - 12, (anchor2.left + anchor2.right - panel.offsetWidth) / 2));
+      const above = anchor2.top - panel.offsetHeight - 8;
+      panel.style.left = left + "px";
+      panel.style.top = Math.max(12, above >= 12 ? above : Math.min(anchor2.bottom + 8, view.innerHeight - panel.offsetHeight - 12)) + "px";
+    };
+    const toggle = () => {
+      const method = element.open ? "addEventListener" : "removeEventListener";
+      view[method]("resize", position);
+      document[method]("scroll", position, true);
+      position();
+    };
+    element.addEventListener("toggle", toggle);
+    return () => {
+      cleanup();
+      element.removeEventListener("toggle", toggle);
+      view.removeEventListener("resize", position);
+      document.removeEventListener("scroll", position, true);
+    };
+  }, []);
+  return h(
+    "details",
+    { ref: root, className: "ci-popup", name: "cursor-integration-popup" },
+    h("style", null, styles),
+    h("summary", { "aria-label": label }, trigger),
+    h("div", { className: "ci-popup-panel" }, children)
   );
 }
 
@@ -19568,8 +19644,8 @@ function fromJSONSchema(schema, params) {
 var RESOLVING = Symbol("z.visit/resolving");
 function visit(schema, fnOrHandlers) {
   const fn = typeof fnOrHandlers === "function" ? fnOrHandlers : (node2, rewritten) => {
-    const h4 = fnOrHandlers[node2._zod.def.type];
-    return h4 ? h4(node2, rewritten) : node2;
+    const h5 = fnOrHandlers[node2._zod.def.type];
+    return h5 ? h5(node2, rewritten) : node2;
   };
   const cache = /* @__PURE__ */ new Map();
   function run(s) {
@@ -20043,7 +20119,7 @@ function createUsageStore(api, { setTimer = setInterval, clearTimer = clearInter
 }
 
 // src/usage/styles.js
-var styles = `
+var styles2 = `
 .cu-status-row,.cu-quota-row{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;flex-basis:100%;width:100%;min-height:26px;padding:3px 8px;box-sizing:border-box;color:var(--dsw-alias-label-secondary);font:inherit;line-height:inherit}
 .cu-status-label{font-weight:500;flex:none;color:var(--dsw-alias-label-secondary)}
 .cu-status-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;font-size:16px;line-height:1;color:var(--dsw-alias-label-secondary)}
@@ -20086,40 +20162,40 @@ function openUsagePage(slots) {
 }
 
 // usage-entry.js
-var h = import_react2.default.createElement;
+var h2 = import_react3.default.createElement;
 var money = (n) => n === null || n === void 0 ? "\u672A\u63D0\u4F9B" : "$" + n.toFixed(2);
 var number4 = (n) => typeof n === "number" ? n.toLocaleString("zh-CN") : "\u2014";
 var percent = (n) => typeof n === "number" ? n.toFixed(1).replace(/\.0$/, "") + "%" : "\u2014";
 var date5 = (value) => value ? new Date(value).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "\u2014";
 var quotaNames = { auto: "Cursor \u6A21\u578B", api: "\u5176\u5B83\u6A21\u578B", onDemand: "\u4E2A\u4EBA\u6309\u9700" };
 var tone = (key, value) => typeof value === "number" && value >= 95 ? "danger" : typeof value === "number" && value >= 80 ? "warn" : key;
-var heading = (name, label) => h("h3", null, h(Icon, { name }), label);
+var heading = (name, label) => h2("h3", null, h2(Icon, { name }), label);
 function Ring({ item, size = 14 }) {
   const used = item?.percent, value = typeof used === "number" ? Math.max(0, Math.min(100, used)) : 0;
-  return h(
+  return h2(
     "svg",
     { width: size, height: size, viewBox: "0 0 16 16", className: "cu-ring cu-tone-" + tone(item?.key, used), "aria-hidden": true },
-    h("circle", { cx: 8, cy: 8, r: 5.5, fill: "none", stroke: "var(--dsw-alias-bg-skeleton)", strokeWidth: 1.5 }),
-    value > 0 ? h("circle", { cx: 8, cy: 8, r: 5.5, fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", pathLength: 100, strokeDasharray: `${value} 100`, transform: "rotate(-90 8 8)" }) : null
+    h2("circle", { cx: 8, cy: 8, r: 5.5, fill: "none", stroke: "var(--dsw-alias-bg-skeleton)", strokeWidth: 1.5 }),
+    value > 0 ? h2("circle", { cx: 8, cy: 8, r: 5.5, fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", pathLength: 100, strokeDasharray: `${value} 100`, transform: "rotate(-90 8 8)" }) : null
   );
 }
 var inject = ["slots", "remote"];
 async function apply(ctx) {
   await ctx.remote.$mount(remoteInfo);
   let store, api;
-  const useUsage = () => import_react2.default.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const useUsage = () => import_react3.default.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   function Dock({ useProjection, useSession, useInput, sessionId } = {}) {
     const running = useSession?.((s) => s.running) ?? false;
     const inputModel = useInput?.((s) => typeof s.model === "string" ? s.model : s.model?.id);
-    const [display, setDisplay] = import_react2.default.useState(null);
+    const [display, setDisplay] = import_react3.default.useState(null);
     const modelRoute = useProjection?.("cursorContextRoute");
     const compaction = useProjection?.("cursorCompactionStatus");
     const { data, busy, switching, error: error62 } = useUsage();
-    const [keyMenuOpen, setKeyMenuOpen] = import_react2.default.useState(false);
-    const [navigationError, setNavigationError] = import_react2.default.useState("");
-    const keyRef = import_react2.default.useRef(null);
+    const [keyMenuOpen, setKeyMenuOpen] = import_react3.default.useState(false);
+    const [navigationError, setNavigationError] = import_react3.default.useState("");
+    const keyRef = import_react3.default.useRef(null);
     const model = (running ? modelRoute?.model : inputModel || modelRoute?.model)?.split("@")[0];
-    import_react2.default.useEffect(() => {
+    import_react3.default.useEffect(() => {
       let alive = true, timer;
       async function read() {
         try {
@@ -20151,7 +20227,7 @@ async function apply(ctx) {
       info ? `\u8D26\u671F\u7ED3\u675F\uFF1A${date5(info.periodEnd)}` : "",
       data?.local?.today ? `DSH \u4ECA\u5929\uFF1A${number4(data.local.today.calls)} \u6B21\u8C03\u7528\uFF0C\u5DF2\u8BB0\u5F55 ${number4(data.local.today.totalTokens)} Token\uFF08${data.local.today.reportedCalls} \u6B21\u6709\u7528\u91CF\u8BB0\u5F55\uFF09` : "",
       account?.fetchedAt ? `\u66F4\u65B0\uFF1A${date5(account.fetchedAt)}` : "",
-      "\u70B9\u51FB\u6253\u5F00 Cursor \u7528\u91CF"
+      "\u70B9\u51FB\u67E5\u770B\u7528\u91CF\u660E\u7EC6"
     ].filter(Boolean).join("\n");
     const cursor = modelRoute?.provider === "cursor";
     const checkpoint = display?.sessionId === sessionId ? display.path : null;
@@ -20161,18 +20237,18 @@ async function apply(ctx) {
     const compressionBusy = compaction?.status === "running";
     const compressionFailed = compaction?.status === "failed";
     const compressionText = compressionBusy ? "\u6B63\u5728\u751F\u6210\u6458\u8981\uFF0C\u8BF7\u7A0D\u5019" : compressionFailed ? "\u538B\u7F29\u5931\u8D25 \xB7 " + (compaction.error || "\u8BF7\u7A0D\u540E\u91CD\u8BD5") : compaction?.summarized ? "\u6458\u8981\u538B\u7F29\u5DF2\u5B8C\u6210 \xB7 " + date5(compaction.summarized) : "\u5C1A\u65E0\u6210\u529F\u7684\u6458\u8981\u538B\u7F29\u8BB0\u5F55";
-    const statusRow = (label, icon, text, tone2, extra) => h(
+    const statusRow = (label, icon, text, tone2, extra) => h2(
       "span",
       { className: "cu-status-row cu-status-" + tone2, role: "status" },
-      h(Icon, { name: icon, className: "cu-status-icon" }),
-      h("span", { className: "cu-status-label" }, label),
-      h("span", { className: "cu-status-text" }, text),
-      extra ? h("span", { className: "cu-status-detail" }, extra) : null
+      h2(Icon, { name: icon, className: "cu-status-icon" }),
+      h2("span", { className: "cu-status-label" }, label),
+      h2("span", { className: "cu-status-text" }, text),
+      extra ? h2("span", { className: "cu-status-detail" }, extra) : null
     );
-    return h(
+    return h2(
       "span",
       { className: "cu-dock", "aria-label": "Cursor \u5DF2\u7528\u989D\u5EA6" },
-      h("style", null, styles),
+      h2("style", null, styles2),
       cursor && statusRow("\u68C0\u67E5\u70B9", checkpointIcon, checkpoint ?? "\u7B49\u5F85\u672C\u8F6E\u8BF7\u6C42", checkpointFailed ? "error" : checkpointBusy ? "busy" : "normal"),
       cursor && statusRow(
         "\u4E0A\u4E0B\u6587\u538B\u7F29",
@@ -20181,10 +20257,10 @@ async function apply(ctx) {
         compressionFailed ? "error" : compressionBusy ? "busy" : "normal",
         compaction?.pruned ? "\u5DE5\u5177\u8F93\u51FA\u6700\u8FD1\u88C1\u526A\u4E8E " + date5(compaction.pruned) : null
       ),
-      h(
+      h2(
         "span",
         { className: "cu-quota-row" },
-        h(import_dsh_client_ui_primitives.Menu, {
+        h2(import_dsh_client_ui_primitives.Menu, {
           open: keyMenuOpen,
           onClose: () => setKeyMenuOpen(false),
           items: [{ id: "@auto", label: "\u81EA\u52A8\u9009\u8D26\u53F7" }, ...(data?.keys ?? []).map((row) => ({ id: row.id, label: row.label }))],
@@ -20196,7 +20272,7 @@ async function apply(ctx) {
           },
           align: "start",
           portal: true,
-          anchor: h("button", {
+          anchor: h2("button", {
             ref: keyRef,
             type: "button",
             className: "cu-pill cu-key-label",
@@ -20206,39 +20282,49 @@ async function apply(ctx) {
             "aria-expanded": keyMenuOpen,
             title: "\u5F53\u524D\u5BC6\u94A5\uFF1A" + identity + "\uFF1B\u70B9\u51FB\u5207\u6362\uFF0C\u65B0\u8BF7\u6C42\u751F\u6548",
             onClick: () => setKeyMenuOpen(!keyMenuOpen)
-          }, h(Icon, { name: "account" }), switching ? "\u5207\u6362\u4E2D\u2026" : identity)
+          }, h2(Icon, { name: "account" }), switching ? "\u5207\u6362\u4E2D\u2026" : identity)
         }),
-        modelRoute?.provider === "cursor" && data && h("span", { className: "cu-route", title: "\u5F53\u524D\u6A21\u578B\u65B0\u4E00\u8F6E\u8BF7\u6C42\u7684\u4F18\u5148\u7EBF\u8DEF" }, h(Icon, { name: "network" }), (data.routes?.[modelRoute.model?.split("@")[0]] ?? data.defaultRoute) === "direct" ? "\u4F18\u5148\u76F4\u8FDE" : "\u4F18\u5148\u4EE3\u7406"),
+        modelRoute?.provider === "cursor" && data && h2("span", { className: "cu-route", title: "\u5F53\u524D\u6A21\u578B\u65B0\u4E00\u8F6E\u8BF7\u6C42\u7684\u4F18\u5148\u7EBF\u8DEF" }, h2(Icon, { name: "network" }), (data.routes?.[modelRoute.model?.split("@")[0]] ?? data.defaultRoute) === "direct" ? "\u4F18\u5148\u76F4\u8FDE" : "\u4F18\u5148\u4EE3\u7406"),
         ...[["auto", "Cursor \u6A21\u578B"], ["api", "\u5176\u5B83\u6A21\u578B"], ["onDemand", "\u4E2A\u4EBA\u6309\u9700"]].map(([key, label]) => {
           const item = info?.meters.find((m) => m.key === key), used = item?.percent;
-          const tooltip = `${label}\uFF1A\u5DF2\u7528 ${percent(used)}
-` + (item?.unit === "usd" ? `${money(item.used)} / ${money(item.limit)}\uFF0C\u5269\u4F59 ${money(item.remaining)}
-` : "") + title;
-          return h(
-            "button",
-            { key, type: "button", className: "cu-pill", onClick: () => {
+          const row = (name, value2) => h2("div", { className: "ci-popup-row" }, h2("span", null, name), h2("span", null, value2));
+          const value = (n) => item?.unit === "usd" ? money(n) : percent(n);
+          return h2(
+            Popup,
+            { key, label: `\u67E5\u770B${label}\u7528\u91CF\u660E\u7EC6`, trigger: [
+              h2(Ring, { key: "ring", item }),
+              h2("span", { key: "value", className: "cu-pill-text" }, label + " " + percent(used))
+            ] },
+            h2("strong", { className: "ci-popup-heading" }, h2(Icon, { name: "chart" }), label),
+            row("\u5F53\u524D\u8D26\u53F7", identity),
+            row("\u5DF2\u7528\u6BD4\u4F8B", percent(used)),
+            row("\u5DF2\u7528\u989D\u5EA6", value(item?.used)),
+            item?.unit === "usd" ? row("\u989D\u5EA6\u4E0A\u9650", money(item.limit)) : null,
+            row("\u5269\u4F59\u989D\u5EA6", value(item?.remaining)),
+            row("\u5F53\u524D\u8D26\u671F", info ? date5(info.periodStart) + " \u2014 " + date5(info.periodEnd) : "\u2014"),
+            row("\u6700\u8FD1\u66F4\u65B0", date5(account?.fetchedAt)),
+            h2("div", { className: "ci-popup-note" }, stale ? "\u67E5\u8BE2\u6682\u4E0D\u53EF\u7528\uFF0C\u5F53\u524D\u4E3A\u4E0A\u6B21\u4FDD\u5B58\u7684\u6570\u636E\u3002" : item ? "\u663E\u793A\u540E\u53F0\u7F13\u5B58\u6570\u636E\uFF0C\u70B9\u51FB\u4E0D\u4F1A\u91CD\u65B0\u67E5\u8BE2\u3002" : "\u6682\u65E0\u8BE5\u9879\u7528\u91CF\uFF0C\u7B49\u5F85\u540E\u53F0\u5237\u65B0\u3002"),
+            h2("button", { type: "button", className: "ci-popup-action", onClick: () => {
               setNavigationError(openUsagePage(ctx.slots) ? "" : "\u65E0\u6CD5\u6253\u5F00\u7528\u91CF\u9875\uFF0C\u8BF7\u4ECE\u8BBE\u7F6E\u8FDB\u5165\u3002");
-            }, title: tooltip, "aria-label": `${label} \u5DF2\u7528 ${percent(used)}`, "aria-busy": busy },
-            h(Ring, { item }),
-            h("span", { className: "cu-pill-text" }, label + " " + percent(used))
+            } }, h2(Icon, { name: "chart" }), "\u6253\u5F00\u5B8C\u6574\u7528\u91CF\u9875")
           );
         }),
-        stale ? h("span", { className: "cu-stale", title }, "\u672A\u66F4\u65B0") : null,
-        navigationError ? h("span", { className: "cu-stale", role: "status" }, navigationError) : null
+        stale ? h2("span", { className: "cu-stale", title }, "\u672A\u66F4\u65B0") : null,
+        navigationError ? h2("span", { className: "cu-stale", role: "status" }, navigationError) : null
       )
     );
   }
   function Panel() {
     const { data, busy, error: error62 } = useUsage();
-    const [range, setRange] = import_react2.default.useState("cycle");
-    const [menuOpen, setMenuOpen] = import_react2.default.useState(false);
-    const selectorRef = import_react2.default.useRef(null);
-    const [all, setAll] = import_react2.default.useState(null);
-    const [allBusy, setAllBusy] = import_react2.default.useState(false);
-    const [allError, setAllError] = import_react2.default.useState("");
-    const [checks, setChecks] = import_react2.default.useState(null);
-    const [checkError, setCheckError] = import_react2.default.useState("");
-    import_react2.default.useEffect(() => {
+    const [range, setRange] = import_react3.default.useState("cycle");
+    const [menuOpen, setMenuOpen] = import_react3.default.useState(false);
+    const selectorRef = import_react3.default.useRef(null);
+    const [all, setAll] = import_react3.default.useState(null);
+    const [allBusy, setAllBusy] = import_react3.default.useState(false);
+    const [allError, setAllError] = import_react3.default.useState("");
+    const [checks, setChecks] = import_react3.default.useState(null);
+    const [checkError, setCheckError] = import_react3.default.useState("");
+    import_react3.default.useEffect(() => {
       let alive = true, timer;
       const poll = async () => {
         try {
@@ -20286,116 +20372,116 @@ async function apply(ctx) {
     };
     const refresh = store.refresh;
     const account = data?.account, local = data?.local, usage = local?.[range];
-    const stat = (label, value, hint) => h("div", { className: "cu-stat" }, h("span", null, label), h("strong", null, value), hint ? h("small", null, hint) : null);
-    const meter = (item) => h(
+    const stat = (label, value, hint) => h2("div", { className: "cu-stat" }, h2("span", null, label), h2("strong", null, value), hint ? h2("small", null, hint) : null);
+    const meter = (item) => h2(
       "div",
       { key: item.key, className: "cu-quota", title: item.key === "api" ? "Claude\u3001GPT\u3001Gemini \u7B49\u5176\u5B83\u6A21\u578B\u7684\u989D\u5EA6\u6C60" : item.key === "auto" ? "Auto\u3001Composer \u7B49 Cursor \u6A21\u578B\u7684\u989D\u5EA6\u6C60" : "\u4E2A\u4EBA\u6309\u9700\u5DF2\u7528\u91D1\u989D\u5360\u4E0A\u9650\u7684\u6BD4\u4F8B" },
-      h("span", { className: "cu-quota-name" }, quotaNames[item.key] ?? item.label),
-      h(
+      h2("span", { className: "cu-quota-name" }, quotaNames[item.key] ?? item.label),
+      h2(
         "div",
         { className: "cu-quota-ring", role: "img", "aria-label": `${quotaNames[item.key] ?? item.label} \u5DF2\u7528 ${percent(item.percent)}` },
-        h(Ring, { item, size: 64 }),
-        h("span", { className: "cu-quota-percent" }, percent(item.percent))
+        h2(Ring, { item, size: 64 }),
+        h2("span", { className: "cu-quota-percent" }, percent(item.percent))
       ),
-      h("span", { className: "cu-sub" }, "\u5DF2\u7528\u6BD4\u4F8B"),
-      h("span", { className: "cu-quota-remaining" }, "\u5269\u4F59 " + (item.unit === "percent" ? percent(item.remaining) : money(item.remaining))),
-      item.unit === "usd" ? h("span", { className: "cu-sub" }, money(item.used) + " / " + money(item.limit)) : null
+      h2("span", { className: "cu-sub" }, "\u5DF2\u7528\u6BD4\u4F8B"),
+      h2("span", { className: "cu-quota-remaining" }, "\u5269\u4F59 " + (item.unit === "percent" ? percent(item.remaining) : money(item.remaining))),
+      item.unit === "usd" ? h2("span", { className: "cu-sub" }, money(item.used) + " / " + money(item.limit)) : null
     );
-    return h(
+    return h2(
       "section",
       { className: "cu-root" },
-      h("style", null, styles),
-      h(
+      h2("style", null, styles2),
+      h2(
         "header",
         { className: "cu-line" },
-        h("div", null, h("h2", null, "Cursor \u8D26\u53F7\u6C60"), h("p", { className: "cu-sub" }, "\u8D26\u53F7\u989D\u5EA6 \xB7 \u6A21\u578B\u7EBF\u8DEF \xB7 DSH \u8C03\u7528\u7EDF\u8BA1")),
-        h("button", { type: "button", onClick: refresh, disabled: busy }, h(Icon, { name: "refresh" }), busy ? "\u67E5\u8BE2\u4E2D\u2026" : "\u5237\u65B0")
+        h2("div", null, h2("h2", null, "Cursor \u7528\u91CF"), h2("p", { className: "cu-sub" }, "\u8D26\u53F7\u989D\u5EA6 \xB7 \u6A21\u578B\u7EBF\u8DEF \xB7 DSH \u8C03\u7528\u7EDF\u8BA1")),
+        h2("button", { type: "button", onClick: refresh, disabled: busy }, h2(Icon, { name: "refresh" }), busy ? "\u67E5\u8BE2\u4E2D\u2026" : "\u5237\u65B0")
       ),
-      error62 ? h("p", { role: "alert", className: "cu-notice" }, h(Icon, { name: "warning" }), error62) : null,
-      h(
+      error62 ? h2("p", { role: "alert", className: "cu-notice" }, h2(Icon, { name: "warning" }), error62) : null,
+      h2(
         "article",
         { className: "cu-card" },
         heading("chart", "\u8D26\u53F7\u6C60\u603B\u4F53\u7528\u91CF"),
-        h("div", { className: "cu-quotas" }, ...(data?.totals ?? []).map((item) => h("div", { key: item.key, className: "cu-quota" }, h("span", null, quotaNames[item.key]), h("div", { className: "cu-quota-ring" }, h(Ring, { item, size: 64 }), h("span", { className: "cu-quota-percent" }, percent(item.percent))), h("small", null, (item.weighted ? "\u6309\u989D\u5EA6\u52A0\u6743" : "\u8D26\u53F7\u5E73\u5747") + " \xB7 " + item.count + "/" + item.total + " \u4E2A\u8D26\u53F7")))),
-        data?.pool && h("p", { className: "cu-sub" }, (data.pool.manual ? "\u624B\u52A8\u6307\u5B9A" : "\u81EA\u52A8\u9009\u8D26\u53F7") + " \xB7 \u672C\u671F\u5DF2\u8FC7 " + data.pool.cycle.elapsed + " / " + data.pool.cycle.days + " \u5929 \xB7 \u4E2A\u4EBA\u6309\u9700\u8F6F\u4E0A\u9650 " + percent(data.pool.cycle.percent)),
-        data?.pool?.warning && h("p", { className: "cu-notice", role: "status" }, data.pool.warning)
+        h2("div", { className: "cu-quotas" }, ...(data?.totals ?? []).map((item) => h2("div", { key: item.key, className: "cu-quota" }, h2("span", null, quotaNames[item.key]), h2("div", { className: "cu-quota-ring" }, h2(Ring, { item, size: 64 }), h2("span", { className: "cu-quota-percent" }, percent(item.percent))), h2("small", null, (item.weighted ? "\u6309\u989D\u5EA6\u52A0\u6743" : "\u8D26\u53F7\u5E73\u5747") + " \xB7 " + item.count + "/" + item.total + " \u4E2A\u8D26\u53F7")))),
+        data?.pool && h2("p", { className: "cu-sub" }, (data.pool.manual ? "\u624B\u52A8\u6307\u5B9A" : "\u81EA\u52A8\u9009\u8D26\u53F7") + " \xB7 \u672C\u671F\u5DF2\u8FC7 " + data.pool.cycle.elapsed + " / " + data.pool.cycle.days + " \u5929 \xB7 \u4E2A\u4EBA\u6309\u9700\u8F6F\u4E0A\u9650 " + percent(data.pool.cycle.percent)),
+        data?.pool?.warning && h2("p", { className: "cu-notice", role: "status" }, data.pool.warning)
       ),
-      h(
+      h2(
         "article",
         { className: "cu-card" },
-        h("div", { className: "cu-line" }, heading("network", "\u6A21\u578B\u7EBF\u8DEF"), h("button", { type: "button", className: "cu-button", onClick: toggleChecks }, h(Icon, { name: "network" }), checks?.running ? "\u505C\u6B62\u68C0\u6D4B" : "\u4E00\u952E\u68C0\u6D4B\u6A21\u578B\u7EBF\u8DEF")),
-        h("p", { className: "cu-sub" }, "\u6BCF\u4E2A\u5DF2\u914D\u7F6E\u6A21\u578B\u5206\u522B\u76F4\u8FDE\u548C\u8D70\u4EE3\u7406\u53D1\u9001\u4E00\u6B21\u77ED\u8BF7\u6C42\uFF0C\u4F1A\u6D88\u8017\u8D26\u53F7\u989D\u5EA6\u3002\u76F4\u8FDE\u6210\u529F\u540E\uFF0C\u65B0\u4E00\u8F6E\u4F18\u5148\u76F4\u8FDE\u3002"),
-        (checkError || checks?.error) && h("p", { role: "status" }, checkError || checks.error),
-        checks?.rows?.length > 0 && h(
+        h2("div", { className: "cu-line" }, heading("network", "\u6A21\u578B\u7EBF\u8DEF"), h2("button", { type: "button", className: "cu-button", onClick: toggleChecks }, h2(Icon, { name: "network" }), checks?.running ? "\u505C\u6B62\u68C0\u6D4B" : "\u4E00\u952E\u68C0\u6D4B\u6A21\u578B\u7EBF\u8DEF")),
+        h2("p", { className: "cu-sub" }, "\u6BCF\u4E2A\u5DF2\u914D\u7F6E\u6A21\u578B\u5206\u522B\u76F4\u8FDE\u548C\u8D70\u4EE3\u7406\u53D1\u9001\u4E00\u6B21\u77ED\u8BF7\u6C42\uFF0C\u4F1A\u6D88\u8017\u8D26\u53F7\u989D\u5EA6\u3002\u76F4\u8FDE\u6210\u529F\u540E\uFF0C\u65B0\u4E00\u8F6E\u4F18\u5148\u76F4\u8FDE\u3002"),
+        (checkError || checks?.error) && h2("p", { role: "status" }, checkError || checks.error),
+        checks?.rows?.length > 0 && h2(
           "details",
           { open: true },
-          h("summary", null, "\u5DF2\u5B8C\u6210 " + checks.rows.filter((row) => ![row.direct, row.proxy].some((value) => ["\u5F85\u68C0\u6D4B", "\u68C0\u6D4B\u4E2D", "\u5DF2\u505C\u6B62"].includes(value))).length + " / " + checks.rows.length),
-          h("div", { style: { maxHeight: 280, overflow: "auto" } }, h("table", null, h("thead", null, h("tr", null, ...["\u6A21\u578B", "\u76F4\u8FDE", "\u4EE3\u7406", "\u4F18\u5148\u7EBF\u8DEF"].map((name) => h("th", { key: name }, name)))), h("tbody", null, ...checks.rows.map((row) => h("tr", { key: row.id, title: row.label }, h("td", null, row.id), h("td", null, row.direct), h("td", null, row.proxy), h("td", null, row.preferred === "direct" ? "\u76F4\u8FDE" : "\u4EE3\u7406"))))))
+          h2("summary", null, "\u5DF2\u5B8C\u6210 " + checks.rows.filter((row) => ![row.direct, row.proxy].some((value) => ["\u5F85\u68C0\u6D4B", "\u68C0\u6D4B\u4E2D", "\u5DF2\u505C\u6B62"].includes(value))).length + " / " + checks.rows.length),
+          h2("div", { style: { maxHeight: 280, overflow: "auto" } }, h2("table", null, h2("thead", null, h2("tr", null, ...["\u6A21\u578B", "\u76F4\u8FDE", "\u4EE3\u7406", "\u4F18\u5148\u7EBF\u8DEF"].map((name) => h2("th", { key: name }, name)))), h2("tbody", null, ...checks.rows.map((row) => h2("tr", { key: row.id, title: row.label }, h2("td", null, row.id), h2("td", null, row.direct), h2("td", null, row.proxy), h2("td", null, row.preferred === "direct" ? "\u76F4\u8FDE" : "\u4EE3\u7406"))))))
         )
       ),
-      h(
+      h2(
         "article",
         { className: "cu-card" },
-        h(
+        h2(
           "div",
           { className: "cu-line" },
-          h(
+          h2(
             "div",
             null,
             heading("key", "\u5F53\u524D\u4F7F\u7528\u7684\u5BC6\u94A5"),
-            h("p", { className: "cu-sub" }, data?.active ? data.active.label + " \xB7 " + data.active.keyHint : "\u8BFB\u53D6\u4E2D\u2026")
+            h2("p", { className: "cu-sub" }, data?.active ? data.active.label + " \xB7 " + data.active.keyHint : "\u8BFB\u53D6\u4E2D\u2026")
           ),
-          h("span", { className: "cu-active-badge" }, "\u4F7F\u7528\u4E2D")
+          h2("span", { className: "cu-active-badge" }, "\u4F7F\u7528\u4E2D")
         ),
-        h("p", { className: "cu-sub" }, "\u5207\u6362\u6216\u6DFB\u52A0\u5BC6\u94A5\uFF1A\u8BBE\u7F6E \u2192 Cursor Integration\u3002\u4EC5\u663E\u793A\u672B\u56DB\u4F4D\uFF0C\u5B8C\u6574\u5BC6\u94A5\u4FDD\u7559\u5728\u51ED\u636E\u914D\u7F6E\u4E2D\u3002")
+        h2("p", { className: "cu-sub" }, "\u5207\u6362\u6216\u6DFB\u52A0\u5BC6\u94A5\uFF1A\u8BBE\u7F6E \u2192 Cursor \u96C6\u6210\u3002\u4EC5\u663E\u793A\u672B\u56DB\u4F4D\uFF0C\u5B8C\u6574\u5BC6\u94A5\u4FDD\u7559\u5728\u51ED\u636E\u914D\u7F6E\u4E2D\u3002")
       ),
-      h(
+      h2(
         "article",
         { className: "cu-card" },
-        h(
+        h2(
           "div",
           { className: "cu-line" },
           heading("account", "\u5168\u90E8\u5BC6\u94A5\u7528\u91CF"),
-          h("button", { type: "button", onClick: refreshAll, disabled: allBusy, "aria-busy": allBusy }, h(Icon, { name: "refresh" }), allBusy ? "\u6B63\u5728\u67E5\u8BE2\u5168\u90E8\u2026" : "\u4E00\u952E\u67E5\u8BE2\u5168\u90E8\u5BC6\u94A5")
+          h2("button", { type: "button", onClick: refreshAll, disabled: allBusy, "aria-busy": allBusy }, h2(Icon, { name: "refresh" }), allBusy ? "\u6B63\u5728\u67E5\u8BE2\u5168\u90E8\u2026" : "\u4E00\u952E\u67E5\u8BE2\u5168\u90E8\u5BC6\u94A5")
         ),
-        h("p", { className: "cu-sub" }, "\u6309\u5BC6\u94A5\u5206\u522B\u67E5\u8BE2\u5F53\u524D\u8D26\u671F\uFF0C\u4E0D\u4F1A\u5207\u6362\u5F53\u524D\u5BC6\u94A5\u3002\u540C\u4E00 Cursor \u8D26\u53F7\u7684\u591A\u4E2A\u5BC6\u94A5\u53EF\u80FD\u663E\u793A\u76F8\u540C\u989D\u5EA6\uFF0C\u4E0D\u53E0\u52A0\u3002"),
-        allError ? h("p", { className: "cu-notice", role: "alert" }, allError) : null,
-        !all ? h("p", { className: "cu-sub" }, "\u70B9\u51FB\u4E0A\u65B9\u6309\u94AE\u67E5\u8BE2\u6240\u6709\u5DF2\u4FDD\u5B58\u7684\u5BC6\u94A5\u3002") : all.accounts.map((row) => h(
+        h2("p", { className: "cu-sub" }, "\u6309\u5BC6\u94A5\u5206\u522B\u67E5\u8BE2\u5F53\u524D\u8D26\u671F\uFF0C\u4E0D\u4F1A\u5207\u6362\u5F53\u524D\u5BC6\u94A5\u3002\u540C\u4E00 Cursor \u8D26\u53F7\u7684\u591A\u4E2A\u5BC6\u94A5\u53EF\u80FD\u663E\u793A\u76F8\u540C\u989D\u5EA6\uFF0C\u4E0D\u53E0\u52A0\u3002"),
+        allError ? h2("p", { className: "cu-notice", role: "alert" }, allError) : null,
+        !all ? h2("p", { className: "cu-sub" }, "\u70B9\u51FB\u4E0A\u65B9\u6309\u94AE\u67E5\u8BE2\u6240\u6709\u5DF2\u4FDD\u5B58\u7684\u5BC6\u94A5\u3002") : all.accounts.map((row) => h2(
           "section",
           { key: row.id, className: "cu-account-row" },
-          h(
+          h2(
             "div",
             { className: "cu-line" },
-            h("h3", null, row.label, " ", h("span", { className: "cu-sub" }, row.keyHint)),
-            row.id === data?.active?.id ? h("span", { className: "cu-active-badge" }, "\u4F7F\u7528\u4E2D") : null
+            h2("h3", null, row.label, " ", h2("span", { className: "cu-sub" }, row.keyHint)),
+            row.id === data?.active?.id ? h2("span", { className: "cu-active-badge" }, "\u4F7F\u7528\u4E2D") : null
           ),
-          row.account.error ? h("p", { className: "cu-notice", role: "status" }, row.account.error, row.account.data ? " \u4EE5\u4E0B\u4E3A\u4E0A\u6B21\u6210\u529F\u7684\u6570\u636E\u3002" : "") : null,
-          h("div", { className: "cu-quotas" }, ...["auto", "api", "onDemand"].map((key) => meter(row.account.data?.meters.find((item) => item.key === key) ?? { key, label: quotaNames[key], percent: null, remaining: null, unit: "percent" }))),
-          row.account.data ? h("p", { className: "cu-sub" }, "\u8D26\u671F ", date5(row.account.data.periodStart), " \u2014 ", date5(row.account.data.periodEnd)) : null,
-          h("p", { className: "cu-sub" }, "\u6570\u636E\u66F4\u65B0 ", date5(row.account.fetchedAt))
+          row.account.error ? h2("p", { className: "cu-notice", role: "status" }, row.account.error, row.account.data ? " \u4EE5\u4E0B\u4E3A\u4E0A\u6B21\u6210\u529F\u7684\u6570\u636E\u3002" : "") : null,
+          h2("div", { className: "cu-quotas" }, ...["auto", "api", "onDemand"].map((key) => meter(row.account.data?.meters.find((item) => item.key === key) ?? { key, label: quotaNames[key], percent: null, remaining: null, unit: "percent" }))),
+          row.account.data ? h2("p", { className: "cu-sub" }, "\u8D26\u671F ", date5(row.account.data.periodStart), " \u2014 ", date5(row.account.data.periodEnd)) : null,
+          h2("p", { className: "cu-sub" }, "\u6570\u636E\u66F4\u65B0 ", date5(row.account.fetchedAt))
         ))
       ),
-      h(
+      h2(
         "article",
         { className: "cu-card" },
-        h("div", { className: "cu-line" }, heading("account", "\u8D26\u53F7\u5957\u9910"), h("span", { className: "cu-tag" }, { enterprise: "\u56E2\u961F\u5957\u9910", pro: "Pro", pro_plus: "Pro+", ultra: "Ultra", free: "\u514D\u8D39\u5957\u9910" }[account?.data?.membership] ?? account?.data?.membership ?? "\u8BFB\u53D6\u4E2D")),
-        account?.error ? h("p", { className: "cu-notice", role: "status" }, account.error, account.data ? " \u4EE5\u4E0B\u4E3A\u4E0A\u6B21\u6210\u529F\u7684\u6570\u636E\u3002" : "") : null,
-        account?.data ? h(
-          import_react2.default.Fragment,
+        h2("div", { className: "cu-line" }, heading("account", "\u8D26\u53F7\u5957\u9910"), h2("span", { className: "cu-tag" }, { enterprise: "\u56E2\u961F\u5957\u9910", pro: "Pro", pro_plus: "Pro+", ultra: "Ultra", free: "\u514D\u8D39\u5957\u9910" }[account?.data?.membership] ?? account?.data?.membership ?? "\u8BFB\u53D6\u4E2D")),
+        account?.error ? h2("p", { className: "cu-notice", role: "status" }, account.error, account.data ? " \u4EE5\u4E0B\u4E3A\u4E0A\u6B21\u6210\u529F\u7684\u6570\u636E\u3002" : "") : null,
+        account?.data ? h2(
+          import_react3.default.Fragment,
           null,
-          h("p", { className: "cu-sub" }, "\u8D26\u671F ", date5(account.data.periodStart), " \u2014 ", date5(account.data.periodEnd)),
-          h("div", { className: "cu-quotas" }, ...account.data.meters.map(meter)),
-          h("p", { className: "cu-sub" }, "\u6570\u636E\u66F4\u65B0 ", date5(account.fetchedAt), " \xB7 \u8D26\u53F7\u7528\u91CF\u5305\u542B\u5176\u4ED6 Cursor \u5BA2\u6237\u7AEF")
-        ) : h("p", { className: "cu-sub" }, busy ? "\u6B63\u5728\u8BFB\u53D6\u5B98\u65B9\u7528\u91CF\u2026" : "\u6682\u65E0\u8D26\u53F7\u7528\u91CF")
+          h2("p", { className: "cu-sub" }, "\u8D26\u671F ", date5(account.data.periodStart), " \u2014 ", date5(account.data.periodEnd)),
+          h2("div", { className: "cu-quotas" }, ...account.data.meters.map(meter)),
+          h2("p", { className: "cu-sub" }, "\u6570\u636E\u66F4\u65B0 ", date5(account.fetchedAt), " \xB7 \u8D26\u53F7\u7528\u91CF\u5305\u542B\u5176\u4ED6 Cursor \u5BA2\u6237\u7AEF")
+        ) : h2("p", { className: "cu-sub" }, busy ? "\u6B63\u5728\u8BFB\u53D6\u5B98\u65B9\u7528\u91CF\u2026" : "\u6682\u65E0\u8D26\u53F7\u7528\u91CF")
       ),
-      h(
+      h2(
         "article",
         { className: "cu-card" },
-        h(
+        h2(
           "div",
           { className: "cu-line" },
           heading("chart", "DSH \u8C03\u7528\u7EDF\u8BA1"),
-          h(import_dsh_client_ui_primitives.Menu, {
+          h2(import_dsh_client_ui_primitives.Menu, {
             open: menuOpen,
             onClose: () => setMenuOpen(false),
             items: [{ id: "today", label: "\u4ECA\u5929" }, { id: "cycle", label: local?.cycleSource === "calendar" ? "\u672C\u6708" : "\u5F53\u524D\u8D26\u671F" }, { id: "all", label: "\u5168\u90E8\u5386\u53F2" }],
@@ -20407,16 +20493,16 @@ async function apply(ctx) {
             },
             align: "end",
             portal: true,
-            anchor: h(
+            anchor: h2(
               "button",
               { ref: selectorRef, type: "button", className: "cu-range", "aria-label": "\u7EDF\u8BA1\u8303\u56F4", "aria-haspopup": "menu", "aria-expanded": menuOpen, onClick: () => setMenuOpen(!menuOpen) },
               range === "today" ? "\u4ECA\u5929" : range === "all" ? "\u5168\u90E8\u5386\u53F2" : local?.cycleSource === "calendar" ? "\u672C\u6708" : "\u5F53\u524D\u8D26\u671F",
-              h(import_dsh_client_ui_primitives.IconChevronDownOutlineRegular, { "aria-hidden": true })
+              h2(import_dsh_client_ui_primitives.IconChevronDownOutlineRegular, { "aria-hidden": true })
             )
           })
         ),
-        local?.error ? h("p", { className: "cu-notice" }, local.error) : null,
-        h(
+        local?.error ? h2("p", { className: "cu-notice" }, local.error) : null,
+        h2(
           "div",
           { className: "cu-grid" },
           stat("\u6A21\u578B\u8C03\u7528", number4(usage?.calls), usage ? `\u5931\u8D25 / \u4E2D\u65AD ${number4(usage.failed)}` : null),
@@ -20424,30 +20510,30 @@ async function apply(ctx) {
           stat("\u8F93\u5165 / \u8F93\u51FA", usage ? number4(usage.inputTokens) + " / " + number4(usage.outputTokens) : "\u2014"),
           stat("\u7F13\u5B58\u8BFB / \u5199", usage ? number4(usage.cacheReadTokens) + " / " + number4(usage.cacheWriteTokens) : "\u2014")
         ),
-        range === "cycle" && local?.models?.length ? h("div", { className: "cu-models" }, ...local.models.map((item) => h(
+        range === "cycle" && local?.models?.length ? h2("div", { className: "cu-models" }, ...local.models.map((item) => h2(
           "div",
           { key: item.model, className: "cu-line" },
-          h("span", null, item.model),
-          h("span", { className: "cu-sub" }, `${number4(item.calls)} \u6B21 \xB7 ${number4(item.totalTokens)} Token`)
+          h2("span", null, item.model),
+          h2("span", { className: "cu-sub" }, `${number4(item.calls)} \u6B21 \xB7 ${number4(item.totalTokens)} Token`)
         ))) : null,
-        h("p", { className: "cu-sub", title: "\u5386\u53F2\u4EC5\u4FDD\u5B58 Token\uFF0C\u4E0D\u6309\u6A21\u578B\u6807\u4EF7\u63A8\u7B97\u5B9E\u6536\u8D39\u7528\u3002" }, "DSH \u5355\u72EC\u8D39\u7528\u672A\u63D0\u4F9B \xB7 \u672C\u5730\u5386\u53F2\u7EDF\u8BA1\u5305\u542B\u6240\u6709\u5BC6\u94A5"),
-        local?.skippedSessions ? h("p", { className: "cu-sub" }, `${local.skippedSessions} \u4E2A\u4F1A\u8BDD\u672A\u80FD\u8BFB\u53D6\uFF0C\u7EDF\u8BA1\u53EF\u80FD\u4E0D\u5B8C\u6574\u3002`) : null
+        h2("p", { className: "cu-sub", title: "\u5386\u53F2\u4EC5\u4FDD\u5B58 Token\uFF0C\u4E0D\u6309\u6A21\u578B\u6807\u4EF7\u63A8\u7B97\u5B9E\u6536\u8D39\u7528\u3002" }, "DSH \u5355\u72EC\u8D39\u7528\u672A\u63D0\u4F9B \xB7 \u672C\u5730\u5386\u53F2\u7EDF\u8BA1\u5305\u542B\u6240\u6709\u5BC6\u94A5"),
+        local?.skippedSessions ? h2("p", { className: "cu-sub" }, `${local.skippedSessions} \u4E2A\u4F1A\u8BDD\u672A\u80FD\u8BFB\u53D6\uFF0C\u7EDF\u8BA1\u53EF\u80FD\u4E0D\u5B8C\u6574\u3002`) : null
       ),
-      h("footer", { className: "cu-sub cu-line" }, h("span", null, "\u7528\u91CF\u540E\u53F0\u5237\u65B0\u95F4\u9694 " + (data?.pool?.refreshMinutes ?? 5) + " \u5206\u949F"), h("a", { href: "https://cursor.com/dashboard?tab=usage", target: "_blank", rel: "noopener noreferrer" }, "\u5B98\u7F51\u7528\u91CF \u2197"))
+      h2("footer", { className: "cu-sub cu-line" }, h2("span", null, "\u7528\u91CF\u540E\u53F0\u5237\u65B0\u95F4\u9694 " + (data?.pool?.refreshMinutes ?? 5) + " \u5206\u949F"), h2("a", { href: "https://cursor.com/dashboard?tab=usage", target: "_blank", rel: "noopener noreferrer" }, "\u5B98\u7F51\u7528\u91CF \u2197"))
     );
   }
   ctx.inject(["remote.cursorIntegrationUsage"], (child) => {
     api = child.remote.cursorIntegrationUsage;
     store = createUsageStore(api);
     child.effect(() => () => store.dispose());
-    child.slots.inject("settings.section", () => child.slots.register({ name: "settings.section", id: "cursor-integration-usage", order: 25, label: () => "Cursor \u8D26\u53F7\u6C60" }, Panel));
+    child.slots.inject("settings.section", () => child.slots.register({ name: "settings.section", id: "cursor-integration-usage", order: 25, label: () => "Cursor \u7528\u91CF", icon: () => h2(Icon, { name: "chart" }) }, Panel));
     child.slots.inject("conversation.composer.dock", () => child.slots.register({ name: "conversation.composer.dock", id: "cursor-integration-usage", order: 10 }, Dock));
   });
 }
 
 // client/settings.js
-var import_react3 = __toESM(require("react"), 1);
-var h2 = import_react3.default.createElement;
+var import_react4 = __toESM(require("react"), 1);
+var h3 = import_react4.default.createElement;
 var sheet = `
 .ci-settings{display:grid;gap:16px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:22px}
 .ci-settings *{box-sizing:border-box}.ci-settings h2,.ci-settings h3,.ci-settings p{margin:0}.ci-settings h2{font-size:16px;font-weight:600}.ci-settings h3{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.ci-settings h3 svg{color:var(--dsw-alias-label-secondary);flex:none}
@@ -20463,23 +20549,23 @@ var sheet = `
 .ci-settings button:hover:enabled{background:var(--dsw-alias-interactive-bg-hover)}
 .ci-settings .ci-primary{background:var(--dsw-alias-state-business-primary);color:white}.ci-settings .ci-primary:hover:enabled{filter:brightness(.95);background:var(--dsw-alias-state-business-primary)}.ci-settings .ci-error{color:var(--dsw-alias-state-error-primary)}
 `;
-var heading2 = (name, label) => h2("h3", null, h2(Icon, { name }), label);
-var note = (text) => h2("p", { className: "ci-note" }, h2(Icon, { name: "info" }), text);
+var heading2 = (name, label) => h3("h3", null, h3(Icon, { name }), label);
+var note = (text) => h3("p", { className: "ci-note" }, h3(Icon, { name: "info" }), text);
 function modelRow(row) {
   return typeof row === "string" ? { id: row } : structuredClone(row);
 }
 function mountSettings(ctx) {
   function Panel({ scope, view }) {
-    const snapshot = import_react3.default.useSyncExternalStore((fn) => scope.subscribe(fn), () => scope.getSnapshot());
-    const [draft, setDraft] = import_react3.default.useState(null);
-    const [key, setKey] = import_react3.default.useState("");
-    const [notice, setNotice] = import_react3.default.useState("");
-    const [busy, setBusy] = import_react3.default.useState(false);
-    const [catalog, setCatalog] = import_react3.default.useState([]);
-    const [query, setQuery] = import_react3.default.useState("");
-    const [proxyUrl, setProxyUrl] = import_react3.default.useState(null);
-    const [selected, setSelected] = import_react3.default.useState(null);
-    if (view === "summary") return "Cursor Integration";
+    const snapshot = import_react4.default.useSyncExternalStore((fn) => scope.subscribe(fn), () => scope.getSnapshot());
+    const [draft, setDraft] = import_react4.default.useState(null);
+    const [key, setKey] = import_react4.default.useState("");
+    const [notice, setNotice] = import_react4.default.useState("");
+    const [busy, setBusy] = import_react4.default.useState(false);
+    const [catalog, setCatalog] = import_react4.default.useState([]);
+    const [query, setQuery] = import_react4.default.useState("");
+    const [proxyUrl, setProxyUrl] = import_react4.default.useState(null);
+    const [selected, setSelected] = import_react4.default.useState(null);
+    if (view === "summary") return "Cursor \u96C6\u6210";
     const saved = snapshot.value?.providers?.cursor ?? {};
     const config2 = draft ?? {
       ...saved,
@@ -20494,7 +20580,7 @@ function mountSettings(ctx) {
     const change = (patch) => setDraft({ ...config2, ...patch });
     const editModel = (id, patch) => change({ models: config2.models.map((row) => row.id === id ? { ...row, ...patch } : row) });
     const editAccount = (patch) => change({ accounts: config2.accounts.map((row) => row.apiKeyEnv === ref ? { ...row, ...patch } : row) });
-    const field = (label, props) => h2("label", null, h2("span", null, label), h2("input", { disabled, ...props }));
+    const field = (label, props) => h3("label", null, h3("span", null, label), h3("input", { disabled, ...props }));
     async function discover() {
       setBusy(true);
       setNotice("");
@@ -20577,35 +20663,35 @@ function mountSettings(ctx) {
       setSelected(apiKeyEnv);
       setKey("");
     }
-    return h2(
+    return h3(
       "form",
       { className: "ci-settings", onSubmit: save },
-      h2("style", null, sheet),
-      h2("header", null, h2("h2", null, "Cursor Integration"), h2("p", { className: "ci-note" }, "\u7BA1\u7406\u8D26\u53F7\u3001\u8FDE\u63A5\u548C\u6A21\u578B\uFF1B\u8D26\u53F7\u7528\u91CF\u4E0E\u7EBF\u8DEF\u68C0\u6D4B\u4F4D\u4E8E\u300CCursor \u8D26\u53F7\u6C60\u300D\u3002")),
-      h2(
+      h3("style", null, sheet),
+      h3("header", null, h3("h2", null, "Cursor \u96C6\u6210"), h3("p", { className: "ci-note" }, "\u7BA1\u7406\u8D26\u53F7\u3001\u8FDE\u63A5\u548C\u6A21\u578B\uFF1B\u8D26\u53F7\u7528\u91CF\u4E0E\u7EBF\u8DEF\u68C0\u6D4B\u4F4D\u4E8E\u300CCursor \u7528\u91CF\u300D\u3002")),
+      h3(
         "section",
         { className: "ci-section" },
         heading2("key", "\u8D26\u53F7\u4E0E\u51ED\u636E"),
-        h2(
+        h3(
           "div",
           { className: "ci-inline" },
-          h2(
+          h3(
             "select",
             { value: ref, disabled, onChange: (event) => {
               setSelected(event.target.value);
               setKey("");
             } },
-            ...config2.accounts.map((row) => h2("option", { key: row.apiKeyEnv, value: row.apiKeyEnv }, row.label))
+            ...config2.accounts.map((row) => h3("option", { key: row.apiKeyEnv, value: row.apiKeyEnv }, row.label))
           ),
-          h2("button", { type: "button", disabled, onClick: addAccount }, h2(Icon, { name: "plus" }), "\u6DFB\u52A0\u8D26\u53F7"),
-          h2("button", { type: "button", disabled: disabled || config2.accounts.length < 2, onClick: () => {
+          h3("button", { type: "button", disabled, onClick: addAccount }, h3(Icon, { name: "plus" }), "\u6DFB\u52A0\u8D26\u53F7"),
+          h3("button", { type: "button", disabled: disabled || config2.accounts.length < 2, onClick: () => {
             const accounts = config2.accounts.filter((row) => row.apiKeyEnv !== ref);
             change({ accounts, apiKeyEnv: accounts[0].apiKeyEnv });
             setSelected(accounts[0].apiKeyEnv);
             setKey("");
-          } }, h2(Icon, { name: "trash" }), "\u79FB\u9664\u6B64\u8D26\u53F7")
+          } }, h3(Icon, { name: "trash" }), "\u79FB\u9664\u6B64\u8D26\u53F7")
         ),
-        h2(
+        h3(
           "div",
           { className: "ci-grid" },
           field("\u8D26\u53F7\u540D\u79F0", { value: account?.label ?? "", onChange: (event) => editAccount({ label: event.target.value }) }),
@@ -20619,14 +20705,14 @@ function mountSettings(ctx) {
         ),
         note("\u5BC6\u94A5\u4FDD\u5B58\u5728 DSH \u51ED\u636E\u670D\u52A1\u3002\u4FDD\u5B58\u540E\uFF0C\u65B0\u8BF7\u6C42\u4F7F\u7528\u5F53\u524D\u8D26\u53F7\u3002")
       ),
-      h2(
+      h3(
         "section",
         { className: "ci-section" },
         heading2("network", "\u8FDE\u63A5\u4E0E\u5237\u65B0"),
-        h2(
+        h3(
           "div",
           { className: "ci-grid" },
-          field("\u4EE3\u7406\u5730\u5740\uFF08HTTP \u6216\u6DF7\u5408\u7AEF\u53E3\uFF09", { value: proxyUrl ?? snapshot.value?.proxyUrl ?? "", onChange: (event) => setProxyUrl(event.target.value) }),
+          field("Cursor SDK \u4EE3\u7406\u5730\u5740", { placeholder: "http://127.0.0.1:7890", value: proxyUrl ?? snapshot.value?.proxyUrl ?? "", onChange: (event) => setProxyUrl(event.target.value) }),
           field("\u540E\u53F0\u7528\u91CF\u5237\u65B0\u95F4\u9694\uFF08\u5206\u949F\uFF09", {
             type: "number",
             min: 1,
@@ -20637,31 +20723,31 @@ function mountSettings(ctx) {
         ),
         note("\u4EE3\u7406\u53EA\u4F5C\u7528\u4E8E Cursor SDK \u548C\u76F8\u5173\u67E5\u8BE2\uFF1B\u7559\u7A7A\u76F4\u8FDE\u3002\u7528\u91CF\u5728\u540E\u53F0\u5B9A\u65F6\u5237\u65B0\uFF0C\u8BF7\u6C42\u8BFB\u53D6\u5DF2\u4FDD\u5B58\u7684\u8C03\u5EA6\u7ED3\u679C\u3002")
       ),
-      h2(
+      h3(
         "section",
         { className: "ci-section" },
         heading2("model", "\u6A21\u578B\u76EE\u5F55"),
-        h2(
+        h3(
           "div",
           { className: "ci-inline" },
-          h2("button", { type: "button", disabled, onClick: discover }, h2(Icon, { name: "refresh" }), "\u83B7\u53D6\u6A21\u578B\u76EE\u5F55"),
-          h2("button", { type: "button", disabled, onClick: () => change({ models: void 0 }) }, "\u8DDF\u968F\u8D26\u53F7\u5168\u90E8\u6A21\u578B")
+          h3("button", { type: "button", disabled, onClick: discover }, h3(Icon, { name: "refresh" }), "\u83B7\u53D6\u6A21\u578B\u76EE\u5F55"),
+          h3("button", { type: "button", disabled, onClick: () => change({ models: void 0 }) }, "\u8DDF\u968F\u8D26\u53F7\u5168\u90E8\u6A21\u578B")
         ),
         field("\u641C\u7D22\u6A21\u578B", { value: query, onChange: (event) => setQuery(event.target.value) }),
-        ...catalog.filter((row) => (row.name + " " + row.id).toLowerCase().includes(query.toLowerCase())).filter((row) => !config2.models?.some((saved2) => saved2.id === row.id)).map((row) => h2(
+        ...catalog.filter((row) => (row.name + " " + row.id).toLowerCase().includes(query.toLowerCase())).filter((row) => !config2.models?.some((saved2) => saved2.id === row.id)).map((row) => h3(
           "div",
           { key: row.id, className: "ci-inline" },
-          h2("span", null, row.name ?? row.id),
-          h2("button", { type: "button", disabled, onClick: () => change({ models: [...config2.models ?? [], { id: row.id, name: "Cursor " + (row.name ?? row.id) }] }) }, "\u6DFB\u52A0")
+          h3("span", null, row.name ?? row.id),
+          h3("button", { type: "button", disabled, onClick: () => change({ models: [...config2.models ?? [], { id: row.id, name: "Cursor " + (row.name ?? row.id) }] }) }, "\u6DFB\u52A0")
         )),
-        ...(config2.models ?? []).filter((row) => (row.id + " " + (row.name ?? "")).toLowerCase().includes(query.toLowerCase())).map((row) => h2(
+        ...(config2.models ?? []).filter((row) => (row.id + " " + (row.name ?? "")).toLowerCase().includes(query.toLowerCase())).map((row) => h3(
           "div",
           { key: row.id, className: "ci-model" },
-          h2(
+          h3(
             "div",
             { className: "ci-inline" },
-            h2("strong", null, row.id),
-            h2("button", { type: "button", disabled, onClick: () => change({ models: config2.models.filter((m) => m.id !== row.id) }) }, "\u79FB\u9664")
+            h3("strong", null, row.id),
+            h3("button", { type: "button", disabled, onClick: () => change({ models: config2.models.filter((m) => m.id !== row.id) }) }, "\u79FB\u9664")
           ),
           field("\u663E\u793A\u540D\u79F0", { value: row.name ?? "", onChange: (event) => editModel(row.id, { name: event.target.value }) }),
           field("\u4E0A\u4E0B\u6587\u5BB9\u91CF\uFF08Token\uFF09", {
@@ -20670,13 +20756,13 @@ function mountSettings(ctx) {
             value: row.contextWindow ?? "",
             onChange: (event) => editModel(row.id, { contextWindow: event.target.value ? Number(event.target.value) : void 0 })
           }),
-          h2(
+          h3(
             "div",
             { className: "ci-inline" },
-            ...["text", "image"].map((type) => h2(
+            ...["text", "image"].map((type) => h3(
               "label",
               { key: type },
-              h2("input", {
+              h3("input", {
                 type: "checkbox",
                 disabled: disabled || type === "text",
                 checked: type === "text" || row.inputModalities?.includes("image") === true,
@@ -20684,18 +20770,18 @@ function mountSettings(ctx) {
               }),
               type === "text" ? "\u6587\u5B57" : "\u56FE\u7247"
             )),
-            h2("label", null, h2("input", { type: "checkbox", disabled, checked: row.fast === true, onChange: (event) => editModel(row.id, { fast: event.target.checked }) }), "Fast")
+            h3("label", null, h3("input", { type: "checkbox", disabled, checked: row.fast === true, onChange: (event) => editModel(row.id, { fast: event.target.checked }) }), "Fast")
           ),
-          !row.inputModalities ? h2("small", null, "\u56FE\u7247\u80FD\u529B\u672A\u58F0\u660E\uFF0C\u5F53\u524D\u6309\u6587\u5B57\u5904\u7406\u3002") : null
+          !row.inputModalities ? h3("small", null, "\u56FE\u7247\u80FD\u529B\u672A\u58F0\u660E\uFF0C\u5F53\u524D\u6309\u6587\u5B57\u5904\u7406\u3002") : null
         )),
         !config2.models ? note("\u672A\u6307\u5B9A\u6A21\u578B\u5217\u8868\u65F6\uFF0C\u8DDF\u968F\u8D26\u53F7\u53EF\u7528\u7684\u5168\u90E8\u6A21\u578B\u3002") : null
       ),
-      notice ? h2("p", { className: "ci-note ci-notice", role: "status" }, h2(Icon, { name: /失败|须|请输入|不能为空/.test(notice) ? "warning" : notice === "\u914D\u7F6E\u5DF2\u4FDD\u5B58\u3002" ? "check" : "info" }), notice) : null,
-      h2(
+      notice ? h3("p", { className: "ci-note ci-notice", role: "status" }, h3(Icon, { name: /失败|须|请输入|不能为空/.test(notice) ? "warning" : notice === "\u914D\u7F6E\u5DF2\u4FDD\u5B58\u3002" ? "check" : "info" }), notice) : null,
+      h3(
         "footer",
         { className: "ci-inline ci-footer" },
-        h2("button", { type: "submit", className: "ci-primary", disabled }, h2(Icon, { name: busy ? "refresh" : "check" }), busy ? "\u5904\u7406\u4E2D\u2026" : "\u4FDD\u5B58\u5E76\u542F\u7528\u6B64\u8D26\u53F7"),
-        h2("button", { type: "button", disabled: busy, onClick: () => {
+        h3("button", { type: "submit", className: "ci-primary", disabled }, h3(Icon, { name: busy ? "refresh" : "check" }), busy ? "\u5904\u7406\u4E2D\u2026" : "\u4FDD\u5B58\u5E76\u542F\u7528\u6B64\u8D26\u53F7"),
+        h3("button", { type: "button", disabled: busy, onClick: () => {
           setDraft(null);
           setKey("");
           setSelected(null);
@@ -20711,55 +20797,25 @@ function mountSettings(ctx) {
       child.slots.inject("plugins.bundle.config", () => child.slots.register({
         name: "plugins.bundle.config",
         key: "dsh-cursor-integration"
-      }, (props) => h2(Panel, { ...props, scope: forms.get("cursor-integration") })));
+      }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration") })));
       child.slots.inject("settings.section", () => child.slots.register({
         name: "settings.section",
         id: "cursor-integration-api",
         order: 24,
-        label: () => "Cursor Integration"
-      }, (props) => h2(Panel, { ...props, scope: forms.get("cursor-integration"), view: "editor" })));
+        label: () => "Cursor \u96C6\u6210",
+        icon: () => h3(Icon, { name: "model" })
+      }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration"), view: "editor" })));
     }));
   });
 }
 
 // client/context.js
-var import_react4 = __toESM(require("react"), 1);
-
-// client/dismiss.js
-function attachContextDismiss(root) {
-  const document = root.ownerDocument;
-  function close(event) {
-    if (event.type === "keydown") {
-      if (event.key !== "Escape") return;
-      root.open = false;
-      event.preventDefault();
-      root.querySelector("summary")?.focus({ preventScroll: true });
-    } else if (!root.contains(event.target)) root.open = false;
-    if (!root.open) listen(false);
-  }
-  function listen(enabled) {
-    const method = enabled ? "addEventListener" : "removeEventListener";
-    for (const type of ["pointerdown", "focusin", "keydown"]) document[method](type, close, true);
-  }
-  const toggle = () => listen(root.open);
-  root.addEventListener("toggle", toggle);
-  toggle();
-  return () => {
-    root.removeEventListener("toggle", toggle);
-    listen(false);
-  };
-}
-
-// client/context.js
-var h3 = import_react4.default.createElement;
+var import_react5 = __toESM(require("react"), 1);
+var h4 = import_react5.default.createElement;
 function mountContext(ctx) {
   function CursorContext({ useProjection }) {
     const route = useProjection("cursorContextRoute");
     const breakdown = useProjection("contextBreakdown");
-    const details = import_react4.default.useRef(null);
-    import_react4.default.useEffect(() => {
-      if (details.current) return attachContextDismiss(details.current);
-    }, [route?.provider]);
     if (route?.provider !== "cursor") return null;
     const used = breakdown ? breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens : void 0;
     const capacity = route.contextWindow;
@@ -20777,32 +20833,33 @@ function mountContext(ctx) {
     let offset = 0;
     const segments = parts.map((part) => {
       const length = known ? Math.min(Math.max(0, part.tokens / capacity), Math.max(0, 1 - offset)) * 43.9823 : 0;
-      const arc = h3("circle", { key: part.name, cx: 10, cy: 10, r: 7, fill: "none", stroke: part.color, strokeWidth: 2.8, strokeDasharray: `${length} ${43.9823 - length}`, strokeDashoffset: -offset * 43.9823, transform: "rotate(-90 10 10)" });
+      const arc = h4("circle", { key: part.name, cx: 10, cy: 10, r: 7, fill: "none", stroke: part.color, strokeWidth: 2.8, strokeDasharray: `${length} ${43.9823 - length}`, strokeDashoffset: -offset * 43.9823, transform: "rotate(-90 10 10)" });
       offset += length / 43.9823;
       return arc;
     });
-    return h3(
+    return h4(
       "div",
       { className: "dcp-cursor-context" },
-      h3("style", null, `body:has(.dcp-cursor-context) [data-dsh-claude-context-meter],body:has(.dcp-cursor-context) [data-dsh-claude-context-panel]{display:none!important}[data-composer-dock]:has(.dcp-cursor-context)>span:has(button[aria-haspopup="dialog"]:is([aria-label^="\u4E0A\u4E0B\u6587\u5DF2\u7528 "],[aria-label$=" of context used"])){display:none!important}.dcp-cursor-context{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;min-height:26px;position:relative;flex-basis:100%;width:100%;font-family:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.dcp-cursor-context>details>summary{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;width:fit-content;max-width:100%;margin:0;min-height:26px;box-sizing:border-box;padding:3px 8px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;cursor:pointer;list-style:none}.dcp-cursor-context>details>summary:hover,.dcp-cursor-context>details[open]>summary{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>details>summary>svg{flex:none;width:16px;height:16px}.dcp-cursor-context>details{display:contents}.dcp-cursor-context>svg{flex:none;width:16px;height:16px}.dcp-context-label{font-weight:500;color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>details>summary::-webkit-details-marker{display:none}.dcp-cursor-context>details>summary:focus-visible{outline:2px solid currentColor;border-radius:5px}.dcp-context-origin{font-size:inherit;color:var(--dsw-alias-label-tertiary)}.dcp-context-panel{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:50;width:340px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:14px;border:1px solid var(--dsw-alias-border-default,#8885);border-radius:12px;background:var(--dsw-alias-background-primary,Canvas);color:var(--dsw-alias-label-primary,CanvasText);box-shadow:0 6px 24px #0002}.dcp-context-heading{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.dcp-context-heading svg{color:var(--dsw-alias-label-secondary)}.dcp-context-row{display:grid;grid-template-columns:minmax(100px,1fr) auto 62px;gap:8px;padding:6px 0;align-items:center}.dcp-context-row>span:last-child{text-align:right}.dcp-context-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}.dcp-context-note{font-size:12px;line-height:18px;margin-top:8px;color:var(--dsw-alias-label-tertiary)}`),
-      h3("svg", { width: 18, height: 18, viewBox: "0 0 20 20", "aria-hidden": true }, h3("circle", { cx: 10, cy: 10, r: 7, fill: "none", stroke: "currentColor", opacity: 0.16, strokeWidth: 2.8 }), ...segments),
-      h3("span", { className: "dcp-context-label" }, "\u4E0A\u4E0B\u6587"),
-      h3(
-        "details",
-        { ref: details },
-        h3("summary", { "aria-label": "\u5C55\u5F00\u672C\u5730\u4E0A\u4E0B\u6587\u660E\u7EC6\uFF1A" + label }, known ? `${percent2}%` : "\u672A\u77E5"),
-        h3(
+      h4("style", null, `body:has(.dcp-cursor-context) [data-dsh-claude-context-meter],body:has(.dcp-cursor-context) [data-dsh-claude-context-panel]{display:none!important}[data-composer-dock]:has(.dcp-cursor-context)>span:has(button[aria-haspopup="dialog"]:is([aria-label^="\u4E0A\u4E0B\u6587\u5DF2\u7528 "],[aria-label$=" of context used"])){display:none!important}.dcp-cursor-context{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;min-height:26px;position:relative;flex-basis:100%;width:100%;font-family:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.dcp-context-label{font-weight:500}.dcp-context-origin{color:var(--dsw-alias-label-tertiary)}.dcp-context-heading{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.dcp-context-heading svg{color:var(--dsw-alias-label-secondary)}.dcp-context-row{display:grid;grid-template-columns:minmax(100px,1fr) auto 62px;gap:8px;padding:6px 0;align-items:center}.dcp-context-row>span:last-child{text-align:right}.dcp-context-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}.dcp-context-note{font-size:12px;line-height:18px;margin-top:8px;color:var(--dsw-alias-label-tertiary)}`),
+      h4(
+        Popup,
+        { label: "\u5C55\u5F00\u672C\u5730\u4E0A\u4E0B\u6587\u660E\u7EC6\uFF1A" + label, trigger: [
+          h4("svg", { key: "ring", width: 18, height: 18, viewBox: "0 0 20 20", "aria-hidden": true }, h4("circle", { cx: 10, cy: 10, r: 7, fill: "none", stroke: "currentColor", opacity: 0.16, strokeWidth: 2.8 }), ...segments),
+          h4("span", { key: "label", className: "dcp-context-label" }, "\u4E0A\u4E0B\u6587"),
+          h4("span", { key: "percent" }, known ? `${percent2}%` : "\u672A\u77E5")
+        ] },
+        h4(
           "div",
-          { className: "dcp-context-panel" },
-          h3("strong", { className: "dcp-context-heading" }, h3(Icon, { name: "chart" }), "\u4E0A\u4E0B\u6587\u5360\u7528\u660E\u7EC6"),
-          h3("div", { className: "dcp-context-row" }, h3("span", null, "\u603B\u4E0A\u4E0B\u6587"), h3("span", null, known ? used.toLocaleString() + " Token" : "\u672A\u77E5"), h3("span", null, percentage(used))),
-          ...parts.map((part) => h3("div", { key: part.name, className: "dcp-context-row" }, h3("span", null, h3("i", { className: "dcp-context-dot", style: { background: part.color }, "aria-hidden": true }), part.name), h3("span", null, Number.isFinite(part.tokens) ? part.tokens.toLocaleString() + " Token" : "\u672A\u77E5"), h3("span", null, percentage(part.tokens)))),
-          h3("div", { className: "dcp-context-note" }, "\u5BB9\u91CF\uFF1A" + (Number.isFinite(capacity) ? capacity.toLocaleString() + " Token" : "\u672A\u77E5") + "\u3002\u5404\u9879\u767E\u5206\u6BD4\u5747\u5360\u603B\u5BB9\u91CF\u3002"),
-          h3("div", { className: "dcp-context-note" }, "\u672C\u5730\u4F30\u7B97\uFF0C\u4E0D\u542B Cursor SDK \u5185\u90E8\u63D0\u793A\u548C\u9690\u85CF\u5386\u53F2\uFF1B\u539F\u751F\u8F6C\u76D8\u6765\u6E90\u4E0D\u540C\u3002")
+          null,
+          h4("strong", { className: "dcp-context-heading" }, h4(Icon, { name: "chart" }), "\u4E0A\u4E0B\u6587\u5360\u7528\u660E\u7EC6"),
+          h4("div", { className: "dcp-context-row" }, h4("span", null, "\u603B\u4E0A\u4E0B\u6587"), h4("span", null, known ? used.toLocaleString() + " Token" : "\u672A\u77E5"), h4("span", null, percentage(used))),
+          ...parts.map((part) => h4("div", { key: part.name, className: "dcp-context-row" }, h4("span", null, h4("i", { className: "dcp-context-dot", style: { background: part.color }, "aria-hidden": true }), part.name), h4("span", null, Number.isFinite(part.tokens) ? part.tokens.toLocaleString() + " Token" : "\u672A\u77E5"), h4("span", null, percentage(part.tokens)))),
+          h4("div", { className: "dcp-context-note" }, "\u5BB9\u91CF\uFF1A" + (Number.isFinite(capacity) ? capacity.toLocaleString() + " Token" : "\u672A\u77E5") + "\u3002\u5404\u9879\u767E\u5206\u6BD4\u5747\u5360\u603B\u5BB9\u91CF\u3002"),
+          h4("div", { className: "dcp-context-note" }, "\u672C\u5730\u4F30\u7B97\uFF0C\u4E0D\u542B Cursor SDK \u5185\u90E8\u63D0\u793A\u548C\u9690\u85CF\u5386\u53F2\uFF1B\u539F\u751F\u8F6C\u76D8\u6765\u6E90\u4E0D\u540C\u3002")
         )
       ),
-      known ? h3("span", null, `${compactNumber(used)} / ${compactNumber(capacity)}`) : null,
-      h3("span", { className: "dcp-context-origin" }, "\u672C\u5730\u4F30\u7B97")
+      known ? h4("span", null, `${compactNumber(used)} / ${compactNumber(capacity)}`) : null,
+      h4("span", { className: "dcp-context-origin" }, "\u672C\u5730\u4F30\u7B97")
     );
   }
   ctx.slots.inject("conversation.composer.dock", () => ctx.slots.register({ name: "conversation.composer.dock", id: "cursor-context-estimate", order: 2 }, CursorContext));

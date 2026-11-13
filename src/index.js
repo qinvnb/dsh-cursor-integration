@@ -53,7 +53,7 @@ export function apply(ctx,config) {
   const credential=async()=>{
     const ref=profile().apiKeyEnv;
     const key=ref&&await resolve(ref);
-    if (!key) throw new ProviderError('MISSING_CREDENTIAL','在 Cursor Integration 设置中保存 API Key');
+    if (!key) throw new ProviderError('MISSING_CREDENTIAL','在 Cursor 集成设置中保存 API Key');
     return key;
   };
   const accounts=createAccountsReader({
@@ -64,6 +64,7 @@ export function apply(ctx,config) {
   const pool=createPool({
     accounts,resolve,loadDefaults,saveDefaults,interval:()=>profile().usageRefreshMinutes??5,
     catalog:(key,signal)=>transport.catalog(key,signal),
+    onModelsChanged:()=>ctx.emit('llm/adapters-updated'),
   });
   const checks=createRouteChecks({
     proxyEnabled:Boolean(proxy),load:loadRoutes,save:saveRoutes,

@@ -40,7 +40,7 @@ export function rank(rows,current,threshold,category='api') {
   const sticky = known.find(row => row.id === current && meter(row,'onDemand').percent < threshold);
   return [...plan,...(sticky?[sticky]:[]),...known.filter(row=>row!==sticky),...rows.filter(row=>!known.includes(row)).sort((a,b)=>Number(b.id===current)-Number(a.id===current))];
 }
-export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval=()=>5,loadDefaults=()=>({}),saveDefaults=()=>{}}) {
+export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval=()=>5,loadDefaults=()=>({}),saveDefaults=()=>{},onModelsChanged=()=>{}}) {
   let lastAttempt=0, snapshot, pending, timer, stopped=false, selected, manual=false, warning='';
   let saved=loadDefaults();
   const sessions=new Map();
@@ -98,7 +98,11 @@ export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval
         warning='无法保存下次启动的默认账号。';
       }
     }
-    snapshot={byModel,candidates,models:[...union.values()],byId:new Map(rows.map(row=>[row.id,row])),totals:totals(rows),updatedAt:now().getTime()};
+    const models=[...union.values()];
+    const fingerprint=rows=>JSON.stringify(rows?.slice().sort((a,b)=>a.id.localeCompare(b.id)));
+    const changed=models.length>0&&fingerprint(snapshot?.models)!==fingerprint(models);
+    snapshot={byModel,candidates,models,byId:new Map(rows.map(row=>[row.id,row])),totals:totals(rows),updatedAt:now().getTime()};
+    if(changed)onModelsChanged();
   }
   function refresh() {
     if(!pending && !stopped) {

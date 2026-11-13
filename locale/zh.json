@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Cursor 集成",
+    "description": "在 DSH 中使用 Cursor 模型，管理多账号、用量与会话。"
+  }
+}

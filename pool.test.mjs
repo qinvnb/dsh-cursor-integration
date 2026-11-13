@@ -1,6 +1,17 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {rank,cycleProgress,totals,createPool} from './src/pool.js';
 const row=(id,api,demand,limit=100)=>({id,account:{status:'ready',data:{meters:[{key:'api',unit:'percent',percent:api},{key:'onDemand',unit:'usd',percent:demand,used:demand*limit/100,limit}]}}});
+
+test('a recovered directory notifies selectors once and repeated quota refreshes do not reload models',async()=>{
+ const rows=[row('a',20,0)];let ready=false,notifications=0;
+ const pool=createPool({accounts:{list:()=>rows,all:async()=>({accounts:rows})},resolve:async()=> 'key',
+   catalog:async()=>{if(!ready)throw Error('temporarily unavailable');return [{id:'live'}];},
+   onModelsChanged:()=>{notifications++;},
+ });
+ await pool.refresh();assert.equal(notifications,0);
+ ready=true;await pool.refresh();assert.equal(notifications,1);assert.equal((await pool.models())[0].id,'live');
+ await pool.refresh();assert.equal(notifications,1);pool.close();
+});
 test('23rd resets progress with real month length',()=>{for(const [d,elapsed,days] of [[new Date(2026,10,11),19,31],[new Date(2026,10,23),0,30],[new Date(2024,2,1),7,29]]){const c=cycleProgress(d);assert.equal(c.elapsed,elapsed);assert.equal(c.days,days);}});
 test('lowest remaining-plan usage outranks low demand, tie broken by demand',()=>{const rows=[row('full',100,0),row('one',1,88),row('two',2,3),row('tie',1,5)];assert.deepEqual(rank(rows,'full',60).map(r=>r.id),['tie','one','two','full']);});
 test('exhausted plans keep under-cap demand account and switch at equality',()=>{assert.equal(rank([row('a',100,30),row('b',100,5)],'a',31)[0].id,'a');assert.equal(rank([row('a',100,30),row('b',100,5)],'a',30)[0].id,'b');});

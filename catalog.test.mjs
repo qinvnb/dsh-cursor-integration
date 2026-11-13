@@ -4,6 +4,34 @@ import {retryBootstrapRequest,describeCatalogFailure} from './src/network.js';
 import {ProviderError} from './src/provider.js';
 import {defineAdapter} from './src/adapter.js';
 import {LlmError} from '@deepseek-ai/dsh-llm';
+import {CursorTransport} from './src/transport.js';
+
+test('parallel selector metadata and background reads share one catalog request per credential',async()=>{
+ let calls=0,release;
+ const gate=new Promise(resolve=>{release=resolve;});
+ const transport=new CursorTransport({loadSDK:async()=>({Cursor:{models:{list:async()=>{calls++;await gate;return [{id:'live'}];}}}})});
+ const controller=new AbortController();
+ const cancelled=assert.rejects(transport.catalog('account-a',controller.signal),{code:'ABORTED'});
+ const pending=Array.from({length:49},()=>transport.catalog('account-a'));
+ const other=transport.catalog('account-b');
+ controller.abort();await cancelled;
+ release();const [models]=await Promise.all(pending);await other;
+ assert.equal(calls,2);
+ models[0].id='mutated';assert.equal((await transport.catalog('account-a'))[0].id,'live');
+ await transport.close();
+});
+
+test('a rejected shared directory request is removed so later reads can recover',async()=>{
+ let calls=0;
+ const transport=new CursorTransport({loadSDK:async()=>({Cursor:{models:{list:async()=>{
+   if(++calls===1)throw Object.assign(new Error('private'),{code:'resource_exhausted'});
+   return [{id:'live'}];
+ }}}})});
+ const replies=await Promise.allSettled([transport.catalog('key'),transport.catalog('key')]);
+ assert.ok(replies.every(row=>row.status==='rejected'&&row.reason.code==='CURSOR_RATE_LIMITED'));
+ assert.equal(calls,1);assert.equal((await transport.catalog('key'))[0].id,'live');assert.equal(calls,2);
+ await transport.close();
+});
 
 test('HTTP 502/503 model discovery recovers on the third attempt',async()=>{
  let calls=0;const bodies=[];

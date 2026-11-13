@@ -1,5 +1,6 @@
 import React from 'react';
 import {Icon} from './client/icons.js';
+import {Popup} from './client/popup.js';
 import {Menu, IconChevronDownOutlineRegular} from '@deepseek-ai/dsh-client-ui-primitives';
 import {remoteInfo} from './src/usage/remote.js';
 import {createUsageStore} from './src/usage/ui-store.js';
@@ -50,7 +51,7 @@ export async function apply(ctx) {
       ...(info?.meters ?? []).map(m => `${m.label}：已用 ${m.unit === 'percent' ? percent(m.percent) : money(m.used)}，剩余 ${m.unit === 'percent' ? percent(m.remaining) : money(m.remaining)}`),
       info ? `账期结束：${date(info.periodEnd)}` : '',
       data?.local?.today ? `DSH 今天：${number(data.local.today.calls)} 次调用，已记录 ${number(data.local.today.totalTokens)} Token（${data.local.today.reportedCalls} 次有用量记录）` : '',
-      account?.fetchedAt ? `更新：${date(account.fetchedAt)}` : '', '点击打开 Cursor 用量'].filter(Boolean).join('\n');
+      account?.fetchedAt ? `更新：${date(account.fetchedAt)}` : '', '点击查看用量明细'].filter(Boolean).join('\n');
     const cursor=modelRoute?.provider==='cursor';
     const checkpoint=display?.sessionId===sessionId?display.path:null;
     const checkpointBusy=checkpoint?.startsWith('正在');
@@ -80,10 +81,20 @@ export async function apply(ctx) {
       modelRoute?.provider==='cursor' && data && h('span',{className:'cu-route',title:'当前模型新一轮请求的优先线路'},h(Icon,{name:'network'}),(data.routes?.[modelRoute.model?.split('@')[0]]??data.defaultRoute)==='direct'?'优先直连':'优先代理'),
       ...[['auto','Cursor 模型'],['api','其它模型'],['onDemand','个人按需']].map(([key,label])=>{
         const item=info?.meters.find(m=>m.key===key), used=item?.percent;
-        const tooltip=`${label}：已用 ${percent(used)}\n`+(item?.unit==='usd' ? `${money(item.used)} / ${money(item.limit)}，剩余 ${money(item.remaining)}\n` : '')+title;
-        return h('button',{key,type:'button',className:'cu-pill',onClick:()=>{setNavigationError(openUsagePage(ctx.slots)?'':'无法打开用量页，请从设置进入。');},title:tooltip,'aria-label':`${label} 已用 ${percent(used)}`,'aria-busy':busy},
-          h(Ring,{item}),
-          h('span',{className:'cu-pill-text'},label+' '+percent(used)));
+        const row=(name,value)=>h('div',{className:'ci-popup-row'},h('span',null,name),h('span',null,value));
+        const value=n=>item?.unit==='usd'?money(n):percent(n);
+        return h(Popup,{key,label:`查看${label}用量明细`,trigger:[
+          h(Ring,{key:'ring',item}),h('span',{key:'value',className:'cu-pill-text'},label+' '+percent(used)),
+        ]},
+          h('strong',{className:'ci-popup-heading'},h(Icon,{name:'chart'}),label),
+          row('当前账号',identity),row('已用比例',percent(used)),
+          row('已用额度',value(item?.used)),
+          item?.unit==='usd'?row('额度上限',money(item.limit)):null,
+          row('剩余额度',value(item?.remaining)),
+          row('当前账期',info?date(info.periodStart)+' — '+date(info.periodEnd):'—'),
+          row('最近更新',date(account?.fetchedAt)),
+          h('div',{className:'ci-popup-note'},stale?'查询暂不可用，当前为上次保存的数据。':item?'显示后台缓存数据，点击不会重新查询。':'暂无该项用量，等待后台刷新。'),
+          h('button',{type:'button',className:'ci-popup-action',onClick:()=>{setNavigationError(openUsagePage(ctx.slots)?'':'无法打开用量页，请从设置进入。');}},h(Icon,{name:'chart'}),'打开完整用量页'));
       }),stale?h('span',{className:'cu-stale',title},'未更新'):null,
       navigationError?h('span',{className:'cu-stale',role:'status'},navigationError):null));
   }
@@ -124,7 +135,7 @@ export async function apply(ctx) {
       h('span',{className:'cu-quota-remaining'},'剩余 '+(item.unit==='percent'?percent(item.remaining):money(item.remaining))),
       item.unit==='usd'?h('span',{className:'cu-sub'},money(item.used)+' / '+money(item.limit)):null);
     return h('section', {className: 'cu-root'}, h('style', null, styles),
-      h('header', {className: 'cu-line'}, h('div', null, h('h2', null, 'Cursor 账号池'), h('p', {className: 'cu-sub'}, '账号额度 · 模型线路 · DSH 调用统计')),
+      h('header', {className: 'cu-line'}, h('div', null, h('h2', null, 'Cursor 用量'), h('p', {className: 'cu-sub'}, '账号额度 · 模型线路 · DSH 调用统计')),
         h('button', {type: 'button', onClick: refresh, disabled: busy},h(Icon,{name:'refresh'}),busy ? '查询中…' : '刷新')),
       error ? h('p', {role: 'alert', className: 'cu-notice'},h(Icon,{name:'warning'}),error) : null,
       h('article',{className:'cu-card'},heading('chart','账号池总体用量'),
@@ -140,7 +151,7 @@ export async function apply(ctx) {
         h('div',{className:'cu-line'},h('div',null,heading('key','当前使用的密钥'),
           h('p',{className:'cu-sub'},data?.active ? data.active.label + ' · ' + data.active.keyHint : '读取中…')),
           h('span',{className:'cu-active-badge'},'使用中')),
-        h('p',{className:'cu-sub'},'切换或添加密钥：设置 → Cursor Integration。仅显示末四位，完整密钥保留在凭据配置中。')),
+        h('p',{className:'cu-sub'},'切换或添加密钥：设置 → Cursor 集成。仅显示末四位，完整密钥保留在凭据配置中。')),
       h('article',{className:'cu-card'},
         h('div',{className:'cu-line'},heading('account','全部密钥用量'),
           h('button',{type:'button',onClick:refreshAll,disabled:allBusy,'aria-busy':allBusy},h(Icon,{name:'refresh'}),allBusy ? '正在查询全部…' : '一键查询全部密钥')),
@@ -181,7 +192,7 @@ export async function apply(ctx) {
     api = child.remote.cursorIntegrationUsage;
     store = createUsageStore(api);
     child.effect(() => () => store.dispose());
-    child.slots.inject('settings.section', () => child.slots.register({name: 'settings.section', id: 'cursor-integration-usage', order: 25, label: () => 'Cursor 账号池'}, Panel));
+    child.slots.inject('settings.section', () => child.slots.register({name: 'settings.section', id: 'cursor-integration-usage', order: 25, label: () => 'Cursor 用量', icon: () => h(Icon,{name:'chart'})}, Panel));
     child.slots.inject('conversation.composer.dock', () => child.slots.register({name:'conversation.composer.dock', id:'cursor-integration-usage', order:10}, Dock));
   });
 }

@@ -20,6 +20,7 @@ export class CursorTransport {
     this.lazyPrompt=true;
     this.closed=false;
     this.catalogs=new Map();
+    this.catalogRequests=new Map();
     this.sessions=new Set();
     this.idle=new Map();
     this.continuations=new Map();
@@ -35,15 +36,20 @@ export class CursorTransport {
     const cached=this.catalogs.get(digest);
     if (!refresh && cached?.until>this.now()) return structuredClone(cached.models);
     try {
-      const models=await bounded(()=>this.networkScope(async()=>{
-        const sdk=await this.loadSDK();
-        return sdk.Cursor.models.list({apiKey});
-      }),{signal,timeoutMs:this.timeoutMs});
-      if (!this.closed) {
-        this.catalogs.set(digest,{models:structuredClone(models),until:this.now()+this.catalogTTL});
-        if (this.catalogs.size>8) this.catalogs.delete(this.catalogs.keys().next().value);
+      let operation=this.catalogRequests.get(digest);
+      if(!operation) {
+        operation=Promise.resolve().then(()=>this.networkScope(async()=>{
+          const sdk=await this.loadSDK();
+          const models=await sdk.Cursor.models.list({apiKey});
+          if(!this.closed) {
+            this.catalogs.set(digest,{models:structuredClone(models),until:this.now()+this.catalogTTL});
+            if(this.catalogs.size>8)this.catalogs.delete(this.catalogs.keys().next().value);
+          }
+          return models;
+        })).finally(()=>{if(this.catalogRequests.get(digest)===operation)this.catalogRequests.delete(digest);});
+        this.catalogRequests.set(digest,operation);
       }
-      return models;
+      return structuredClone(await bounded(()=>operation,{signal,timeoutMs:this.timeoutMs}));
     } catch(error) {throw describeCatalogFailure(error);}
   }
   retire(session) {this.sessions.delete(session);}
@@ -198,6 +204,7 @@ export class CursorTransport {
   async close() {
     this.closed=true;
     this.catalogs.clear();this.idle.clear();
+    this.catalogRequests.clear();
     const sessions=Array.from(this.sessions);
     for (const session of sessions) {session.bridge.close();session.controller.abort();}
     await Promise.all(sessions.map(async session=>{await session.done;await session.dispose();}));
