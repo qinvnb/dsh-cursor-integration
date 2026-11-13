@@ -1,6 +1,6 @@
 {
   "name": "dsh-cursor-integration",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "license": "MIT",
   "description": "Cursor SDK integration for DSH with account scheduling, usage, scoped networking and persistent conversations.",

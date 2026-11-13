@@ -20724,11 +20724,42 @@ function mountSettings(ctx) {
 
 // client/context.js
 var import_react4 = __toESM(require("react"), 1);
+
+// client/dismiss.js
+function attachContextDismiss(root) {
+  const document = root.ownerDocument;
+  function close(event) {
+    if (event.type === "keydown") {
+      if (event.key !== "Escape") return;
+      root.open = false;
+      event.preventDefault();
+      root.querySelector("summary")?.focus({ preventScroll: true });
+    } else if (!root.contains(event.target)) root.open = false;
+    if (!root.open) listen(false);
+  }
+  function listen(enabled) {
+    const method = enabled ? "addEventListener" : "removeEventListener";
+    for (const type of ["pointerdown", "focusin", "keydown"]) document[method](type, close, true);
+  }
+  const toggle = () => listen(root.open);
+  root.addEventListener("toggle", toggle);
+  toggle();
+  return () => {
+    root.removeEventListener("toggle", toggle);
+    listen(false);
+  };
+}
+
+// client/context.js
 var h3 = import_react4.default.createElement;
 function mountContext(ctx) {
   function CursorContext({ useProjection }) {
     const route = useProjection("cursorContextRoute");
     const breakdown = useProjection("contextBreakdown");
+    const details = import_react4.default.useRef(null);
+    import_react4.default.useEffect(() => {
+      if (details.current) return attachContextDismiss(details.current);
+    }, [route?.provider]);
     if (route?.provider !== "cursor") return null;
     const used = breakdown ? breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens : void 0;
     const capacity = route.contextWindow;
@@ -20751,26 +20782,27 @@ function mountContext(ctx) {
       return arc;
     });
     return h3(
-      "details",
+      "div",
       { className: "dcp-cursor-context" },
-      h3("style", null, `body:has(.dcp-cursor-context) [data-dsh-claude-context-meter],body:has(.dcp-cursor-context) [data-dsh-claude-context-panel]{display:none!important}[data-composer-dock]:has(.dcp-cursor-context)>span:has(button[aria-haspopup="dialog"]:is([aria-label^="\u4E0A\u4E0B\u6587\u5DF2\u7528 "],[aria-label$=" of context used"])){display:none!important}.dcp-cursor-context{position:relative;flex-basis:100%;width:100%;font-family:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.dcp-cursor-context>summary{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;width:fit-content;max-width:100%;margin-inline:auto;min-height:26px;box-sizing:border-box;padding:3px 8px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;cursor:pointer;list-style:none}.dcp-cursor-context>summary:hover,.dcp-cursor-context[open]>summary{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>summary>svg{flex:none;width:16px;height:16px}.dcp-context-label{font-weight:500;color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>summary::-webkit-details-marker{display:none}.dcp-cursor-context>summary:focus-visible{outline:2px solid currentColor;border-radius:5px}.dcp-context-origin{font-size:inherit;color:var(--dsw-alias-label-tertiary)}.dcp-context-panel{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:50;width:340px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:14px;border:1px solid var(--dsw-alias-border-default,#8885);border-radius:12px;background:var(--dsw-alias-background-primary,Canvas);color:var(--dsw-alias-label-primary,CanvasText);box-shadow:0 6px 24px #0002}.dcp-context-heading{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.dcp-context-heading svg{color:var(--dsw-alias-label-secondary)}.dcp-context-row{display:grid;grid-template-columns:minmax(100px,1fr) auto 62px;gap:8px;padding:6px 0;align-items:center}.dcp-context-row>span:last-child{text-align:right}.dcp-context-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}.dcp-context-note{font-size:12px;line-height:18px;margin-top:8px;color:var(--dsw-alias-label-tertiary)}`),
+      h3("style", null, `body:has(.dcp-cursor-context) [data-dsh-claude-context-meter],body:has(.dcp-cursor-context) [data-dsh-claude-context-panel]{display:none!important}[data-composer-dock]:has(.dcp-cursor-context)>span:has(button[aria-haspopup="dialog"]:is([aria-label^="\u4E0A\u4E0B\u6587\u5DF2\u7528 "],[aria-label$=" of context used"])){display:none!important}.dcp-cursor-context{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;min-height:26px;position:relative;flex-basis:100%;width:100%;font-family:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.dcp-cursor-context>details>summary{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;width:fit-content;max-width:100%;margin:0;min-height:26px;box-sizing:border-box;padding:3px 8px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;cursor:pointer;list-style:none}.dcp-cursor-context>details>summary:hover,.dcp-cursor-context>details[open]>summary{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>details>summary>svg{flex:none;width:16px;height:16px}.dcp-cursor-context>details{display:contents}.dcp-cursor-context>svg{flex:none;width:16px;height:16px}.dcp-context-label{font-weight:500;color:var(--dsw-alias-label-secondary)}.dcp-cursor-context>details>summary::-webkit-details-marker{display:none}.dcp-cursor-context>details>summary:focus-visible{outline:2px solid currentColor;border-radius:5px}.dcp-context-origin{font-size:inherit;color:var(--dsw-alias-label-tertiary)}.dcp-context-panel{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:50;width:340px;max-width:calc(100vw - 32px);box-sizing:border-box;padding:14px;border:1px solid var(--dsw-alias-border-default,#8885);border-radius:12px;background:var(--dsw-alias-background-primary,Canvas);color:var(--dsw-alias-label-primary,CanvasText);box-shadow:0 6px 24px #0002}.dcp-context-heading{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.dcp-context-heading svg{color:var(--dsw-alias-label-secondary)}.dcp-context-row{display:grid;grid-template-columns:minmax(100px,1fr) auto 62px;gap:8px;padding:6px 0;align-items:center}.dcp-context-row>span:last-child{text-align:right}.dcp-context-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}.dcp-context-note{font-size:12px;line-height:18px;margin-top:8px;color:var(--dsw-alias-label-tertiary)}`),
+      h3("svg", { width: 18, height: 18, viewBox: "0 0 20 20", "aria-hidden": true }, h3("circle", { cx: 10, cy: 10, r: 7, fill: "none", stroke: "currentColor", opacity: 0.16, strokeWidth: 2.8 }), ...segments),
+      h3("span", { className: "dcp-context-label" }, "\u4E0A\u4E0B\u6587"),
       h3(
-        "summary",
-        { "aria-label": "\u5C55\u5F00\u672C\u5730\u4E0A\u4E0B\u6587\u660E\u7EC6\uFF1A" + label },
-        h3("svg", { width: 18, height: 18, viewBox: "0 0 20 20", "aria-hidden": true }, h3("circle", { cx: 10, cy: 10, r: 7, fill: "none", stroke: "currentColor", opacity: 0.16, strokeWidth: 2.8 }), ...segments),
-        h3("span", { className: "dcp-context-label" }, "\u4E0A\u4E0B\u6587"),
-        h3("span", null, label),
-        h3("span", { className: "dcp-context-origin" }, "\u672C\u5730\u4F30\u7B97")
+        "details",
+        { ref: details },
+        h3("summary", { "aria-label": "\u5C55\u5F00\u672C\u5730\u4E0A\u4E0B\u6587\u660E\u7EC6\uFF1A" + label }, known ? `${percent2}%` : "\u672A\u77E5"),
+        h3(
+          "div",
+          { className: "dcp-context-panel" },
+          h3("strong", { className: "dcp-context-heading" }, h3(Icon, { name: "chart" }), "\u4E0A\u4E0B\u6587\u5360\u7528\u660E\u7EC6"),
+          h3("div", { className: "dcp-context-row" }, h3("span", null, "\u603B\u4E0A\u4E0B\u6587"), h3("span", null, known ? used.toLocaleString() + " Token" : "\u672A\u77E5"), h3("span", null, percentage(used))),
+          ...parts.map((part) => h3("div", { key: part.name, className: "dcp-context-row" }, h3("span", null, h3("i", { className: "dcp-context-dot", style: { background: part.color }, "aria-hidden": true }), part.name), h3("span", null, Number.isFinite(part.tokens) ? part.tokens.toLocaleString() + " Token" : "\u672A\u77E5"), h3("span", null, percentage(part.tokens)))),
+          h3("div", { className: "dcp-context-note" }, "\u5BB9\u91CF\uFF1A" + (Number.isFinite(capacity) ? capacity.toLocaleString() + " Token" : "\u672A\u77E5") + "\u3002\u5404\u9879\u767E\u5206\u6BD4\u5747\u5360\u603B\u5BB9\u91CF\u3002"),
+          h3("div", { className: "dcp-context-note" }, "\u672C\u5730\u4F30\u7B97\uFF0C\u4E0D\u542B Cursor SDK \u5185\u90E8\u63D0\u793A\u548C\u9690\u85CF\u5386\u53F2\uFF1B\u539F\u751F\u8F6C\u76D8\u6765\u6E90\u4E0D\u540C\u3002")
+        )
       ),
-      h3(
-        "div",
-        { className: "dcp-context-panel" },
-        h3("strong", { className: "dcp-context-heading" }, h3(Icon, { name: "chart" }), "\u4E0A\u4E0B\u6587\u5360\u7528\u660E\u7EC6"),
-        h3("div", { className: "dcp-context-row" }, h3("span", null, "\u603B\u4E0A\u4E0B\u6587"), h3("span", null, known ? used.toLocaleString() + " Token" : "\u672A\u77E5"), h3("span", null, percentage(used))),
-        ...parts.map((part) => h3("div", { key: part.name, className: "dcp-context-row" }, h3("span", null, h3("i", { className: "dcp-context-dot", style: { background: part.color }, "aria-hidden": true }), part.name), h3("span", null, Number.isFinite(part.tokens) ? part.tokens.toLocaleString() + " Token" : "\u672A\u77E5"), h3("span", null, percentage(part.tokens)))),
-        h3("div", { className: "dcp-context-note" }, "\u5BB9\u91CF\uFF1A" + (Number.isFinite(capacity) ? capacity.toLocaleString() + " Token" : "\u672A\u77E5") + "\u3002\u5404\u9879\u767E\u5206\u6BD4\u5747\u5360\u603B\u5BB9\u91CF\u3002"),
-        h3("div", { className: "dcp-context-note" }, "\u672C\u5730\u4F30\u7B97\uFF0C\u4E0D\u542B Cursor SDK \u5185\u90E8\u63D0\u793A\u548C\u9690\u85CF\u5386\u53F2\uFF1B\u539F\u751F\u8F6C\u76D8\u6765\u6E90\u4E0D\u540C\u3002")
-      )
+      known ? h3("span", null, `${compactNumber(used)} / ${compactNumber(capacity)}`) : null,
+      h3("span", { className: "dcp-context-origin" }, "\u672C\u5730\u4F30\u7B97")
     );
   }
   ctx.slots.inject("conversation.composer.dock", () => ctx.slots.register({ name: "conversation.composer.dock", id: "cursor-context-estimate", order: 2 }, CursorContext));
