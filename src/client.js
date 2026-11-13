@@ -20841,17 +20841,27 @@ function mountSettings(ctx) {
   ctx.inject(["configForms"], (child) => {
     const forms = child.configForms;
     child.effect(() => forms.whileServed(["cursor-integration"], () => {
-      child.slots.inject("plugins.bundle.config", () => child.slots.register({
+      const bundle = child.slots.inject("plugins.bundle.config", () => child.slots.register({
         name: "plugins.bundle.config",
         key: "dsh-cursor-integration"
       }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration") })));
-      child.slots.inject("settings.section", () => child.slots.register({
-        name: "settings.section",
-        id: "cursor-integration-api",
-        order: 24,
-        label: () => "Cursor \u96C6\u6210",
-        icon: () => h3(Icon, { name: "model" })
-      }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration"), view: "editor" })));
+      let section;
+      try {
+        section = child.slots.inject("settings.section", () => child.slots.register({
+          name: "settings.section",
+          id: "cursor-integration-api",
+          order: 24,
+          label: () => "Cursor \u96C6\u6210",
+          icon: () => h3(Icon, { name: "model" })
+        }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration"), view: "editor" })));
+      } catch (error62) {
+        bundle();
+        throw error62;
+      }
+      return () => {
+        section();
+        bundle();
+      };
     }));
   });
 }

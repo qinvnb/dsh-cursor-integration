@@ -17,6 +17,7 @@ export class CursorTransport {
     this.replaceSystemPrompt=options.replaceSystemPrompt??false;
     this.checkpointRoot=options.checkpointRoot;
     this.onPath=options.onPath??(()=>{});
+    this.onCleanupDeferred=options.onCleanupDeferred??(()=>{});
     this.lazyPrompt=true;
     this.closed=false;
     this.catalogs=new Map();
@@ -91,8 +92,11 @@ export class CursorTransport {
     }
     const ids=session.pendingCalls.map(call=>call.id);
     session.bridge.results(request.messages,ids);
+    clearTimeout(session.recoveryTimer);
+    session.recoveryTimer=undefined;
     session.detach?.();
     this.expire(request.continuation);
+    session.token=undefined;
     session.bridge.resume(request.messages,ids);
     return session;
   }

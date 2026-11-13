@@ -47,8 +47,9 @@ export function apply(ctx,config) {
     if (paths.size>512) paths.delete(paths.keys().next().value);
   };
   const proxy=config.proxyUrl?createCursorProxy(config.proxyUrl):undefined;
-  const transport=new CursorTransport({networkScope:proxy?.run,checkpointRoot,onPath});
-  const direct=new CursorTransport({checkpointRoot,onPath});
+  const onCleanupDeferred=code=>ctx.logger.warn('Checkpoint cleanup deferred ('+code+')');
+  const transport=new CursorTransport({networkScope:proxy?.run,checkpointRoot,onPath,onCleanupDeferred});
+  const direct=new CursorTransport({checkpointRoot,onPath,onCleanupDeferred});
   const resolve=async ref=>(await ctx.credentials.resolve(ref))?.value;
   const credential=async()=>{
     const ref=profile().apiKeyEnv;

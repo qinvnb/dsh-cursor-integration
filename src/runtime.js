@@ -1,9 +1,9 @@
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {bounded,ProviderError,summarizeUsage} from './provider.js';
 import {NativeBridge,bridgeIdentity,stableHistory} from './native.js';
-import {newDirectory,publish,finishTurn,beginTurn,releaseCompleted} from './checkpoints.js';
+import {newDirectory,publish,finishTurn,beginTurn,releaseCompleted,removeDirectory} from './checkpoints.js';
 import {sdkOutputReader} from './tool-output.js';
 import {isRemoteContext,buildCursorPrompt,latestRuntimeContext} from './request-context.js';
 import {sdkCreateDiagnostic,describeNetworkFailure} from './network.js';
@@ -100,7 +100,7 @@ export class RuntimeSession {
         }
         this.checkpoint=undefined;
         this.reason='SDK 无法恢复原检查点';
-        await rm(this.directory,{recursive:true,force:true});
+        await removeDirectory(this.directory,this.transport.onCleanupDeferred);
         await this.allocate();
       }
       if (this.agent) {
@@ -120,7 +120,7 @@ export class RuntimeSession {
       this.agent=await bounded(()=>sdk.Agent.create(this.sdkOptions(sdk)),{
         ...this.options(),lateCleanup:async agent=>{
           await agent[Symbol.asyncDispose]();
-          await rm(directory,{recursive:true,force:true});
+          await removeDirectory(directory,this.transport.onCleanupDeferred);
         },
       });
     } catch(error) {
@@ -142,6 +142,8 @@ export class RuntimeSession {
     });
   }
   async activate(request,suffix) {
+    clearTimeout(this.recoveryTimer);
+    this.recoveryTimer=undefined;
     if (this.marker) {
       await beginTurn(this.directory,this.marker);
       this.marker=undefined;
@@ -162,6 +164,8 @@ export class RuntimeSession {
       clearTimeout(this.lifetime);
       this.detach?.();
     });
+    // The host can be running a long tool before it awaits this producer again.
+    void this.done.catch(()=>{});
   }
   async produce() {
     const start=performance.now(),counts={},timings={};
@@ -235,8 +239,11 @@ export class RuntimeSession {
       clearTimeout(timer);
       this.ended=true;
       this.detach?.();
-      if (this.token) {
-        this.recoveryTimer=setTimeout(()=>this.transport.expire(this.token),this.transport.timeoutMs);
+      clearTimeout(this.recoveryTimer);
+      this.recoveryTimer=undefined;
+      const token=this.token;
+      if (token && this.transport.continuations.get(token)===this) {
+        this.recoveryTimer=setTimeout(()=>this.transport.expire(token),this.transport.timeoutMs);
         this.recoveryTimer.unref?.();
       }
       if (!this.completed) {
@@ -262,7 +269,7 @@ export class RuntimeSession {
   async dispose() {
     if (this.disposing) return this.disposing;
     this.disposing=(async()=>{
-      clearTimeout(this.lifetime);clearTimeout(this.idleTimer);
+      clearTimeout(this.lifetime);clearTimeout(this.idleTimer);clearTimeout(this.recoveryTimer);
       this.bridge.close();
       try {
         if (this.agent) await bounded(()=>this.agent[Symbol.asyncDispose](),{timeoutMs:5000});
@@ -277,7 +284,7 @@ export class RuntimeSession {
           try {await publish(this.directory,this.checkpoint);retained=true;} catch {}
         }
       }
-      if (this.directory && !retained) await rm(this.directory,{recursive:true,force:true});
+      if (this.directory && !retained) await removeDirectory(this.directory,this.transport.onCleanupDeferred);
       this.closed=true;
       this.transport.retire(this);
     })();

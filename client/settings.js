@@ -162,12 +162,15 @@ export function mountSettings(ctx) {
   ctx.inject(['configForms'],child=>{
     const forms=child.configForms;
     child.effect(()=>forms.whileServed(['cursor-integration'],()=>{
-      child.slots.inject('plugins.bundle.config',()=>child.slots.register({
+      const bundle=child.slots.inject('plugins.bundle.config',()=>child.slots.register({
         name:'plugins.bundle.config',key:'dsh-cursor-integration',
       },props=>h(Panel,{...props,scope:forms.get('cursor-integration')})));
-      child.slots.inject('settings.section',()=>child.slots.register({
+      let section;
+      try {section=child.slots.inject('settings.section',()=>child.slots.register({
         name:'settings.section',id:'cursor-integration-api',order:24,label:()=> 'Cursor 集成',icon:()=>h(Icon,{name:'model'}),
-      },props=>h(Panel,{...props,scope:forms.get('cursor-integration'),view:'editor'})));
+      },props=>h(Panel,{...props,scope:forms.get('cursor-integration'),view:'editor'})));}
+      catch(error){bundle();throw error;}
+      return ()=>{section();bundle();};
     }));
   });
 }

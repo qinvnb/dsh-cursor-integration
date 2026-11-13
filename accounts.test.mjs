@@ -30,3 +30,27 @@ test('add, save and switch accounts without overwriting an existing key or stori
  tree=render();await tree.props.onSubmit({preventDefault(){}});
  assert.equal(state.value.providers.cursor.apiKeyEnv,'CURSOR_API_KEY');assert.equal(writes.length,1);
 });
+
+test('settings refreshes keep one registration and release both seats when the namespace disappears',async()=>{
+ const active=new Set();let refresh,stop;
+ const React={createElement:(type,props,...children)=>({type,props,children})};
+ const slots={inject:(_name,fn)=>fn(),register:(spec)=>{
+   const key=spec.name+':'+(spec.key??spec.id);
+   assert.ok(!active.has(key),'slot is registered only once');active.add(key);
+   return ()=>active.delete(key);
+ }};
+ const forms={get:()=>({}),whileServed:(_names,register)=>{
+   let off;
+   refresh=served=>{if(served&&off===undefined)off=register();else if(!served&&off!==undefined){off();off=undefined;}};
+   refresh(true);return ()=>{off?.();};
+ }};
+ const ctx={slots,remote:{$mount:async()=>{}},inject:(names,fn)=>{
+   if(names.includes('configForms'))fn({slots,configForms:forms,effect:fn=>{stop=fn();}});
+ }};
+ let plugin;vm.runInNewContext(fs.readFileSync(new URL('./src/client.js',import.meta.url),'utf8'),{window:{__ModuleLoader__:{load:spec=>{plugin=spec.factory(()=>React);}}}});
+ await plugin.apply(ctx);
+ for(let i=0;i<10;i++)refresh(true);
+ assert.ok(active.has('plugins.bundle.config:dsh-cursor-integration'));
+ refresh(false);assert.ok(!active.has('plugins.bundle.config:dsh-cursor-integration'));assert.ok(!active.has('settings.section:cursor-integration-api'));
+ refresh(true);stop();assert.ok(!active.has('plugins.bundle.config:dsh-cursor-integration'));
+});

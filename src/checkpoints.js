@@ -11,6 +11,17 @@ const completed = /^idle-(\d+)-(\d+)-[a-f0-9-]{36}\.json$/;
 const owner = 'busy-' + process.pid;
 const sessionPrefix = id => createHash('sha256').update(id).digest('hex').slice(0,32) + '-';
 
+// Cleanup is a cache maintenance operation, never a reason to fail a turn.
+export async function removeDirectory(directory,onDeferred=()=>{},remove=rm) {
+  try {
+    await remove(directory,{recursive:true,force:true,maxRetries:3,retryDelay:100});
+    return true;
+  } catch(error) {
+    try {onDeferred(error?.code??'UNKNOWN');} catch {}
+    return false;
+  }
+}
+
 export async function newDirectory(root, id) {
   await mkdir(root,{recursive:true,mode:0o700});
   const directory = join(root,sessionPrefix(id)+randomUUID());
@@ -93,7 +104,7 @@ export async function sweep(root) {
       if(!Number.isSafeInteger(pid)||pid<1||!processGone(pid))continue;
       // A stale gate can be abandoned together with its generation. Never unlock
       // it for reuse while another cleaner might still be retiring it.
-      await rm(directory,{recursive:true,force:true}).catch(()=>{});continue;
+      await removeDirectory(directory);continue;
     }
     const available=usableMarker(names);
     if(available){idle.push({directory,...available});continue;}
@@ -101,7 +112,7 @@ export async function sweep(root) {
     if(busy && processGone(Number(busy.slice(5)))) {
       // A crashed owner cannot publish this generation or replay pending tools.
       try{await rename(join(directory,busy),join(directory,owner));}catch{continue;}
-      await rm(directory,{recursive:true,force:true}).catch(()=>{});
+      await removeDirectory(directory);
     }
   }
   let bytes=0, retained=0;
@@ -117,6 +128,6 @@ export async function sweep(root) {
     }
     if(!await acquire(directory))continue;
     try{await rename(join(directory,marker),join(directory,owner));}catch{await release(directory);continue;}
-    await rm(directory,{recursive:true,force:true});
+    try {await removeDirectory(directory);} finally {await release(directory);}
   }
 }
