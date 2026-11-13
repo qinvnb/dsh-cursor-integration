@@ -1,0 +1,69 @@
+{
+  "name": "dsh-cursor-integration",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Cursor SDK integration for DSH with account scheduling, usage, scoped networking and persistent conversations.",
+  "engines": {
+    "node": ">=24.9"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./typert": "./src/usage/remote.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@cursor/sdk": "1.0.40",
+    "ajv": "8.20.0",
+    "zod": "4.6.7",
+    "undici": "7.30.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.3",
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-token-meter": ">=0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "*"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "@deepseek-ai/cordis": "4.0.5",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-token-meter": "0.2.1-rc.2"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test *.test.mjs",
+    "check": "npm test && npm run build",
+    "pack:check": "npm pack --dry-run"
+  },
+  "author": "qinvnb",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qinvnb/dsh-cursor-integration.git"
+  },
+  "homepage": "https://github.com/qinvnb/dsh-cursor-integration#readme",
+  "bugs": {
+    "url": "https://github.com/qinvnb/dsh-cursor-integration/issues"
+  }
+}

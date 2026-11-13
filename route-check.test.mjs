@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {createRouteChecks} from './src/route-check.js';
+test('check both routes, keep credentials private, isolate model and account, and restore priorities',async()=>{
+ let saved;const calls=[];const opts={proxyEnabled:true,list:async()=>['composer','claude'],select:async()=>({ref:'ref-a',key:'secret-value',label:'Work'}),probe:async(mode,id)=>{calls.push([mode,id]);if(mode==='direct'&&id==='claude')throw Error('failed');},save:value=>{saved=value;}};
+ const checks=createRouteChecks(opts);checks.start();checks.start();await new Promise(r=>setImmediate(r));assert.equal(calls.length,4);assert.equal(checks.preferred('ref-a','composer'),'direct');assert.equal(checks.preferred('ref-b','composer'),'proxy');assert.equal(checks.preferred('ref-a','claude'),'proxy');assert.equal(checks.status().rows[1].proxy,'成功');assert.ok(!JSON.stringify(saved).includes('secret-value'));assert.equal(createRouteChecks({...opts,load:()=>saved}).preferred('ref-a','composer'),'direct');
+});

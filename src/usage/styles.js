@@ -1,0 +1,31 @@
+// Native DSH AccountSection and StatsPills theme tokens, without private class names.
+export const styles = `
+.cu-status-row,.cu-quota-row{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;flex-basis:100%;width:100%;min-height:26px;padding:3px 8px;box-sizing:border-box;color:var(--dsw-alias-label-secondary);font:inherit;line-height:inherit}
+.cu-status-label{font-weight:500;flex:none;color:var(--dsw-alias-label-secondary)}
+.cu-status-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;font-size:16px;line-height:1;color:var(--dsw-alias-label-secondary)}
+.cu-status-text{overflow-wrap:anywhere}
+.cu-status-detail{color:var(--dsw-alias-label-tertiary)}
+.cu-status-error .cu-status-icon{color:var(--dsw-alias-state-error-primary,#c44942)}
+.cu-status-busy .cu-status-icon{color:var(--dsw-alias-state-business-primary)}
+.cu-quota-row{gap:4px 8px}
+.cu-quota-row .cu-pill{padding:0;line-height:inherit;color:var(--dsw-alias-label-secondary)}
+.cu-quota-row .cu-key-label{font-weight:500}
+.cu-quota-row .cu-ring{width:16px;height:16px}
+
+.cu-key-label{align-self:center;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;color:var(--dsw-alias-label-secondary)}
+.cu-active-badge{flex:none;font-size:12px;color:var(--dsw-alias-button-info-fill)}.cu-account-row{padding-top:12px;border-top:.5px solid var(--dsw-alias-border-l2)}.cu-account-row h3{overflow-wrap:anywhere}
+.cu-root{display:flex;flex-direction:column;gap:16px;padding:8px 0;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,inherit);font-size:13px;line-height:22px}
+.cu-root *{box-sizing:border-box}.cu-root h2,.cu-root h3{margin:0;font-size:14px;font-weight:500;line-height:22px}.cu-root p{margin:0}.cu-root header p{margin-top:2px}
+.cu-line{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.cu-card{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border:.5px solid var(--dsw-alias-settings-card-stroke);border-radius:var(--dsw-radius-xl);background:var(--dsw-alias-settings-card-fill)}
+.cu-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}.cu-tag{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.cu-meter{padding:4px 0 8px}.cu-meter+.cu-meter{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:12px}.cu-meter b{font-weight:500;font-variant-numeric:tabular-nums}
+.cu-track{height:4px;background:var(--dsw-alias-bg-skeleton);border-radius:var(--dsw-radius-sm);overflow:hidden;margin:8px 0}.cu-track>div{height:100%;background:var(--dsw-alias-button-info-fill);border-radius:inherit}.cu-track>div.cu-exhausted{background:var(--dsw-alias-label-tertiary)}
+.cu-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:8px 0}.cu-stat{display:flex;flex-direction:column;gap:2px;min-width:0}.cu-stat>span,.cu-stat small{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.cu-stat strong{font-size:14px;font-weight:500;line-height:22px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.cu-root button,.cu-root select{font:inherit;color:var(--dsw-alias-label-primary);background:transparent;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md);height:32px;padding:0 12px;cursor:pointer}.cu-root button:hover,.cu-root select:hover{background:var(--dsw-alias-interactive-bg-hover)}.cu-root select{font-size:12px;max-width:130px}.cu-root select option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}.cu-root button:disabled{opacity:.5;cursor:default}.cu-root button:focus-visible,.cu-root select:focus-visible,.cu-pill:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.cu-notice{color:var(--dsw-alias-state-error-primary);font-size:12px}.cu-models{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:8px}.cu-models>div{padding:4px 0;flex-wrap:wrap}.cu-root a{color:inherit;text-decoration:none}.cu-root a:hover{color:var(--dsw-alias-label-primary)}
+[data-composer-dock]:has(.cu-dock){flex-wrap:wrap;row-gap:0}.cu-dock{display:flex;justify-content:center;flex-wrap:wrap;column-gap:2px;min-width:0;max-width:100%;flex-basis:100%;order:10;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px))}.cu-pill{display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:100%;padding:1px 6px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;cursor:pointer}.cu-pill svg{flex:none}.cu-pill:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.cu-pill-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cu-pill:disabled{cursor:default}.cu-stale{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.cu-root .cu-range{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;padding:4px 8px;height:28px;font-size:13px;color:var(--dsw-alias-label-secondary)}.cu-range svg{width:14px;height:14px;color:var(--dsw-alias-label-tertiary)}
+.cu-tone-auto{color:light-dark(#0d9488,#2dd4bf)}.cu-tone-api{color:var(--dsw-alias-button-info-fill)}.cu-tone-onDemand{color:light-dark(#8b5cf6,#a78bfa)}.cu-tone-warn{color:light-dark(#b45309,#fbbf24)}.cu-tone-danger{color:var(--dsw-alias-state-error-primary)}
+.cu-quotas{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;margin:8px 0}.cu-quota{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;padding:4px 6px;text-align:center}.cu-quota+.cu-quota{border-left:.5px solid var(--dsw-alias-border-l2)}.cu-quota-name{font-size:13px;font-weight:500;white-space:nowrap}.cu-quota-ring{position:relative;width:64px;height:64px;margin:4px 0}.cu-quota-percent{position:absolute;inset:0;display:grid;place-items:center;font-size:14px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary)}.cu-quota-remaining{font-size:12px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}.cu-quota .cu-sub{font-size:11px;overflow-wrap:anywhere}
+`;

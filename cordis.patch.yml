@@ -1,0 +1,4 @@
+- insert:
+    - id: cursor-integration
+      name: dsh-cursor-integration
+      config: {}
