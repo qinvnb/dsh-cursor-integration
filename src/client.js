@@ -116,6 +116,7 @@ var styles = `
 .ci-popup>summary::-webkit-details-marker{display:none}.ci-popup>summary:hover,.ci-popup[open]>summary{background:var(--dsw-alias-interactive-bg-hover)}.ci-popup>summary:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.ci-popup>summary svg{flex:none;width:16px;height:16px}
 .ci-popup-panel{position:fixed;inset:auto;margin:0;z-index:1000;width:340px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;box-sizing:border-box;padding:14px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-xl,12px);background:var(--dsw-alias-bg-layer-1,Canvas);color:var(--dsw-alias-label-primary,CanvasText);box-shadow:0 6px 24px #0002;font-size:12px;line-height:20px;text-align:left}
 .ci-popup-heading{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;margin-bottom:8px}.ci-popup-heading svg{flex:none;color:var(--dsw-alias-label-secondary)}
+.ci-popup-options{display:grid;gap:4px;margin-top:8px}.ci-popup-option{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:6px 8px;border:0;border-radius:var(--dsw-radius-sm,4px);background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.ci-popup-option:hover,.ci-popup-option[aria-pressed=true]{background:var(--dsw-alias-interactive-bg-hover)}.ci-popup-option:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.ci-popup-option:disabled{opacity:.5;cursor:default}.ci-popup-option>svg{flex:none}.ci-popup-option>span{flex:1;min-width:0;overflow-wrap:anywhere}
 .ci-popup-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:5px 0}.ci-popup-row>span:first-child{color:var(--dsw-alias-label-secondary)}.ci-popup-row>span:last-child{font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:right}.ci-popup-note{margin-top:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}.ci-popup-action{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:var(--dsw-radius-sm,4px);padding:4px 6px;margin-top:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer}.ci-popup-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
 `;
 function Popup({ label, trigger, children }) {
@@ -153,7 +154,12 @@ function Popup({ label, trigger, children }) {
     { ref: root, className: "ci-popup", name: "cursor-integration-popup" },
     h("style", null, styles),
     h("summary", { "aria-label": label }, trigger),
-    h("div", { className: "ci-popup-panel", popover: "manual" }, children)
+    h("div", { className: "ci-popup-panel", popover: "manual" }, typeof children === "function" ? children(() => {
+      if (root.current) {
+        root.current.open = false;
+        root.current.querySelector("summary")?.focus({ preventScroll: true });
+      }
+    }) : children)
   );
 }
 
@@ -20206,9 +20212,7 @@ async function apply(ctx) {
     const modelRoute = useProjection?.("cursorContextRoute");
     const compaction = useProjection?.("cursorCompactionStatus");
     const { data, busy, switching, error: error62 } = useUsage();
-    const [keyMenuOpen, setKeyMenuOpen] = import_react3.default.useState(false);
     const [navigationError, setNavigationError] = import_react3.default.useState("");
-    const keyRef = import_react3.default.useRef(null);
     const model = (running ? modelRoute?.model : inputModel || modelRoute?.model)?.split("@")[0];
     import_react3.default.useEffect(() => {
       let alive = true, timer;
@@ -20275,30 +20279,38 @@ async function apply(ctx) {
       h2(
         "span",
         { className: "cu-quota-row" },
-        h2(import_dsh_client_ui_primitives.Menu, {
-          open: keyMenuOpen,
-          onClose: () => setKeyMenuOpen(false),
-          items: [{ id: "@auto", label: "\u81EA\u52A8\u9009\u8D26\u53F7" }, ...(data?.keys ?? []).map((row) => ({ id: row.id, label: row.label }))],
-          selectedId: displayed?.id,
-          onSelect: async (id) => {
-            keyRef.current?.focus({ preventScroll: true });
-            setKeyMenuOpen(false);
-            await store.selectKey(id);
-          },
-          align: "start",
-          portal: true,
-          anchor: h2("button", {
-            ref: keyRef,
-            type: "button",
-            className: "cu-pill cu-key-label",
-            disabled: switching || !data?.keys?.length,
-            "aria-label": "\u5207\u6362 Cursor \u5BC6\u94A5",
-            "aria-haspopup": "menu",
-            "aria-expanded": keyMenuOpen,
-            title: "\u5F53\u524D\u5BC6\u94A5\uFF1A" + identity + "\uFF1B\u70B9\u51FB\u5207\u6362\uFF0C\u65B0\u8BF7\u6C42\u751F\u6548",
-            onClick: () => setKeyMenuOpen(!keyMenuOpen)
-          }, h2(Icon, { name: "account" }), switching ? "\u5207\u6362\u4E2D\u2026" : identity)
-        }),
+        h2(Popup, { label: "\u67E5\u770B\u548C\u5207\u6362 Cursor \u8D26\u53F7", trigger: [h2(Icon, { key: "icon", name: "account" }), h2("span", { key: "name", className: "cu-key-label" }, switching ? "\u5207\u6362\u4E2D\u2026" : identity)] }, (close) => h2(
+          import_react3.default.Fragment,
+          null,
+          h2("strong", { className: "ci-popup-heading" }, h2(Icon, { name: "account" }), "\u5F53\u524D\u8D26\u53F7"),
+          h2("div", { className: "ci-popup-row" }, h2("span", null, "\u672C\u8F6E\u4F7F\u7528"), h2("span", null, identity)),
+          h2("div", { className: "ci-popup-row" }, h2("span", null, "\u9009\u62E9\u65B9\u5F0F"), h2("span", null, data?.pool?.manual ? "\u624B\u52A8\u6307\u5B9A" : "\u81EA\u52A8\u9009\u62E9")),
+          h2(
+            "div",
+            { className: "ci-popup-options", "aria-label": "\u9009\u62E9\u4E0B\u4E00\u8F6E\u4F7F\u7528\u7684\u8D26\u53F7" },
+            ...[{ id: "@auto", label: "\u81EA\u52A8\u9009\u8D26\u53F7" }, ...data?.keys ?? []].map((row) => {
+              const selected = row.id === "@auto" ? !data?.pool?.manual : Boolean(data?.pool?.manual && row.id === data?.active?.id);
+              return h2(
+                "button",
+                {
+                  key: row.id,
+                  type: "button",
+                  className: "ci-popup-option",
+                  disabled: switching || !data?.keys?.length,
+                  "aria-pressed": selected,
+                  onClick: async () => {
+                    if (await store.selectKey(row.id)) close();
+                  }
+                },
+                h2(Icon, { name: row.id === "@auto" ? "refresh" : "account" }),
+                h2("span", null, row.label),
+                selected ? h2(Icon, { name: "check" }) : null
+              );
+            })
+          ),
+          error62 ? h2("div", { className: "ci-popup-note", role: "alert" }, error62) : null,
+          h2("div", { className: "ci-popup-note" }, "\u5207\u6362\u5BF9\u65B0\u8BF7\u6C42\u751F\u6548\uFF0C\u6B63\u5728\u8FD0\u884C\u7684\u8BF7\u6C42\u7EE7\u7EED\u4F7F\u7528\u539F\u8D26\u53F7\u3002")
+        )),
         modelRoute?.provider === "cursor" && data && h2("span", { className: "cu-route", title: "\u5F53\u524D\u6A21\u578B\u65B0\u4E00\u8F6E\u8BF7\u6C42\u7684\u4F18\u5148\u7EBF\u8DEF" }, h2(Icon, { name: "network" }), (data.routes?.[modelRoute.model?.split("@")[0]] ?? data.defaultRoute) === "direct" ? "\u4F18\u5148\u76F4\u8FDE" : "\u4F18\u5148\u4EE3\u7406"),
         ...[["auto", "Cursor \u6A21\u578B"], ["api", "\u5176\u5B83\u6A21\u578B"], ["onDemand", "\u4E2A\u4EBA\u6309\u9700"]].map(([key, label]) => {
           const item = info?.meters.find((m) => m.key === key), used = item?.percent;

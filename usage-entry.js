@@ -33,9 +33,7 @@ export async function apply(ctx) {
     const modelRoute=useProjection?.('cursorContextRoute');
     const compaction=useProjection?.('cursorCompactionStatus');
     const {data, busy, switching, error} = useUsage();
-    const [keyMenuOpen,setKeyMenuOpen] = React.useState(false);
     const [navigationError,setNavigationError] = React.useState('');
-    const keyRef = React.useRef(null);
     const model=(running?modelRoute?.model:inputModel||modelRoute?.model)?.split('@')[0];
     React.useEffect(()=>{
       let alive=true,timer;
@@ -73,11 +71,19 @@ export async function apply(ctx) {
         compressionText,compressionFailed?'error':compressionBusy?'busy':'normal',
         compaction?.pruned?'工具输出最近裁剪于 '+date(compaction.pruned):null),
       h('span',{className:'cu-quota-row'},
-      h(Menu,{open:keyMenuOpen,onClose:()=>setKeyMenuOpen(false),items:[{id:'@auto',label:'自动选账号'},...(data?.keys??[]).map(row=>({id:row.id,label:row.label}))],selectedId:displayed?.id,
-        onSelect:async id=>{keyRef.current?.focus({preventScroll:true});setKeyMenuOpen(false);await store.selectKey(id);},align:'start',portal:true,
-        anchor:h('button',{ref:keyRef,type:'button',className:'cu-pill cu-key-label',disabled:switching||!data?.keys?.length,
-          'aria-label':'切换 Cursor 密钥','aria-haspopup':'menu','aria-expanded':keyMenuOpen,title:'当前密钥：'+identity+'；点击切换，新请求生效',
-          onClick:()=>setKeyMenuOpen(!keyMenuOpen)},h(Icon,{name:'account'}),switching?'切换中…':identity)}),
+      h(Popup,{label:'查看和切换 Cursor 账号',trigger:[h(Icon,{key:'icon',name:'account'}),h('span',{key:'name',className:'cu-key-label'},switching?'切换中…':identity)]},close=>h(React.Fragment,null,
+        h('strong',{className:'ci-popup-heading'},h(Icon,{name:'account'}),'当前账号'),
+        h('div',{className:'ci-popup-row'},h('span',null,'本轮使用'),h('span',null,identity)),
+        h('div',{className:'ci-popup-row'},h('span',null,'选择方式'),h('span',null,data?.pool?.manual?'手动指定':'自动选择')),
+        h('div',{className:'ci-popup-options','aria-label':'选择下一轮使用的账号'},
+          ...[{id:'@auto',label:'自动选账号'},...(data?.keys??[])].map(row=>{
+            const selected=row.id==='@auto'?!data?.pool?.manual:Boolean(data?.pool?.manual&&row.id===data?.active?.id);
+            return h('button',{key:row.id,type:'button',className:'ci-popup-option',disabled:switching||!data?.keys?.length,
+              'aria-pressed':selected,onClick:async()=>{if(await store.selectKey(row.id))close();}},
+              h(Icon,{name:row.id==='@auto'?'refresh':'account'}),h('span',null,row.label),selected?h(Icon,{name:'check'}):null);
+          })),
+        error?h('div',{className:'ci-popup-note',role:'alert'},error):null,
+        h('div',{className:'ci-popup-note'},'切换对新请求生效，正在运行的请求继续使用原账号。'))),
       modelRoute?.provider==='cursor' && data && h('span',{className:'cu-route',title:'当前模型新一轮请求的优先线路'},h(Icon,{name:'network'}),(data.routes?.[modelRoute.model?.split('@')[0]]??data.defaultRoute)==='direct'?'优先直连':'优先代理'),
       ...[['auto','Cursor 模型'],['api','其它模型'],['onDemand','个人按需']].map(([key,label])=>{
         const item=info?.meters.find(m=>m.key===key), used=item?.percent;
