@@ -76,7 +76,7 @@ export async function apply(ctx) {
         onSelect:async id=>{keyRef.current?.focus({preventScroll:true});setKeyMenuOpen(false);await store.selectKey(id);},align:'start',portal:true,
         anchor:h('button',{ref:keyRef,type:'button',className:'cu-pill cu-key-label',disabled:switching||!data?.keys?.length,
           'aria-label':'切换 Cursor 密钥','aria-haspopup':'menu','aria-expanded':keyMenuOpen,title:'当前密钥：'+identity+'；点击切换，新请求生效',
-          onClick:()=>setKeyMenuOpen(!keyMenuOpen)},h(Icon,{name:'key'}),switching?'切换中…':identity)}),
+          onClick:()=>setKeyMenuOpen(!keyMenuOpen)},h(Icon,{name:'account'}),switching?'切换中…':identity)}),
       modelRoute?.provider==='cursor' && data && h('span',{className:'cu-route',title:'当前模型新一轮请求的优先线路'},h(Icon,{name:'network'}),(data.routes?.[modelRoute.model?.split('@')[0]]??data.defaultRoute)==='direct'?'优先直连':'优先代理'),
       ...[['auto','Cursor 模型'],['api','其它模型'],['onDemand','个人按需']].map(([key,label])=>{
         const item=info?.meters.find(m=>m.key===key), used=item?.percent;

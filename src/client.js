@@ -20206,7 +20206,7 @@ async function apply(ctx) {
             "aria-expanded": keyMenuOpen,
             title: "\u5F53\u524D\u5BC6\u94A5\uFF1A" + identity + "\uFF1B\u70B9\u51FB\u5207\u6362\uFF0C\u65B0\u8BF7\u6C42\u751F\u6548",
             onClick: () => setKeyMenuOpen(!keyMenuOpen)
-          }, h(Icon, { name: "key" }), switching ? "\u5207\u6362\u4E2D\u2026" : identity)
+          }, h(Icon, { name: "account" }), switching ? "\u5207\u6362\u4E2D\u2026" : identity)
         }),
         modelRoute?.provider === "cursor" && data && h("span", { className: "cu-route", title: "\u5F53\u524D\u6A21\u578B\u65B0\u4E00\u8F6E\u8BF7\u6C42\u7684\u4F18\u5148\u7EBF\u8DEF" }, h(Icon, { name: "network" }), (data.routes?.[modelRoute.model?.split("@")[0]] ?? data.defaultRoute) === "direct" ? "\u4F18\u5148\u76F4\u8FDE" : "\u4F18\u5148\u4EE3\u7406"),
         ...[["auto", "Cursor \u6A21\u578B"], ["api", "\u5176\u5B83\u6A21\u578B"], ["onDemand", "\u4E2A\u4EBA\u6309\u9700"]].map(([key, label]) => {
