@@ -94,13 +94,27 @@ function attachContextDismiss(root) {
   };
 }
 
+// client/popup-position.js
+function positionPopup(panel, anchor2, view) {
+  const edge = 12, gap = 8;
+  const above = Math.max(0, anchor2.top - gap - edge);
+  const below = Math.max(0, view.innerHeight - anchor2.bottom - gap - edge);
+  const useAbove = above >= 100 || above >= below;
+  panel.style.maxHeight = Math.max(1, useAbove ? above : below) + "px";
+  panel.style.left = Math.max(edge, Math.min(
+    view.innerWidth - panel.offsetWidth - edge,
+    (anchor2.left + anchor2.right - panel.offsetWidth) / 2
+  )) + "px";
+  panel.style.top = (useAbove ? Math.max(edge, anchor2.top - gap - panel.offsetHeight) : anchor2.bottom + gap) + "px";
+}
+
 // client/popup.js
 var h = import_react2.default.createElement;
 var styles = `
 .ci-popup{display:inline-flex;min-width:0;max-width:100%;font:inherit;color:inherit}
 .ci-popup>summary{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:26px;box-sizing:border-box;padding:3px 6px;border:0;border-radius:var(--dsw-radius-sm,4px);background:transparent;color:inherit;font:inherit;font-variant-numeric:tabular-nums;cursor:pointer;list-style:none}
 .ci-popup>summary::-webkit-details-marker{display:none}.ci-popup>summary:hover,.ci-popup[open]>summary{background:var(--dsw-alias-interactive-bg-hover)}.ci-popup>summary:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}.ci-popup>summary svg{flex:none;width:16px;height:16px}
-.ci-popup-panel{position:fixed;z-index:1000;width:340px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;box-sizing:border-box;padding:14px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-xl,12px);background:var(--dsw-alias-settings-card-fill,var(--dsw-alias-bg-layer-1,Canvas));color:var(--dsw-alias-label-primary,CanvasText);box-shadow:0 6px 24px #0002;font-size:12px;line-height:20px;text-align:left}
+.ci-popup-panel{position:fixed;inset:auto;margin:0;z-index:1000;width:340px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;box-sizing:border-box;padding:14px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-xl,12px);background:var(--dsw-alias-bg-layer-1,Canvas);color:var(--dsw-alias-label-primary,CanvasText);box-shadow:0 6px 24px #0002;font-size:12px;line-height:20px;text-align:left}
 .ci-popup-heading{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;margin-bottom:8px}.ci-popup-heading svg{flex:none;color:var(--dsw-alias-label-secondary)}
 .ci-popup-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:5px 0}.ci-popup-row>span:first-child{color:var(--dsw-alias-label-secondary)}.ci-popup-row>span:last-child{font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:right}.ci-popup-note{margin-top:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}.ci-popup-action{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:var(--dsw-radius-sm,4px);padding:4px 6px;margin-top:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer}.ci-popup-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
 `;
@@ -111,15 +125,15 @@ function Popup({ label, trigger, children }) {
     if (!element) return;
     const cleanup = attachContextDismiss(element);
     const document = element.ownerDocument, view = document.defaultView;
+    const panel = element.querySelector(".ci-popup-panel");
     const position = () => {
       if (!element.open) return;
-      const panel = element.querySelector(".ci-popup-panel"), anchor2 = element.querySelector("summary").getBoundingClientRect();
-      const left = Math.max(12, Math.min(view.innerWidth - panel.offsetWidth - 12, (anchor2.left + anchor2.right - panel.offsetWidth) / 2));
-      const above = anchor2.top - panel.offsetHeight - 8;
-      panel.style.left = left + "px";
-      panel.style.top = Math.max(12, above >= 12 ? above : Math.min(anchor2.bottom + 8, view.innerHeight - panel.offsetHeight - 12)) + "px";
+      positionPopup(panel, element.querySelector("summary").getBoundingClientRect(), view);
     };
     const toggle = () => {
+      if (element.open) {
+        if (!panel.matches(":popover-open")) panel.showPopover();
+      } else if (panel.matches(":popover-open")) panel.hidePopover();
       const method = element.open ? "addEventListener" : "removeEventListener";
       view[method]("resize", position);
       document[method]("scroll", position, true);
@@ -128,6 +142,7 @@ function Popup({ label, trigger, children }) {
     element.addEventListener("toggle", toggle);
     return () => {
       cleanup();
+      if (panel.matches(":popover-open")) panel.hidePopover();
       element.removeEventListener("toggle", toggle);
       view.removeEventListener("resize", position);
       document.removeEventListener("scroll", position, true);
@@ -138,7 +153,7 @@ function Popup({ label, trigger, children }) {
     { ref: root, className: "ci-popup", name: "cursor-integration-popup" },
     h("style", null, styles),
     h("summary", { "aria-label": label }, trigger),
-    h("div", { className: "ci-popup-panel" }, children)
+    h("div", { className: "ci-popup-panel", popover: "manual" }, children)
   );
 }
 
@@ -20533,6 +20548,7 @@ async function apply(ctx) {
 
 // client/settings.js
 var import_react4 = __toESM(require("react"), 1);
+var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
 var h3 = import_react4.default.createElement;
 var sheet = `
 .ci-settings{display:grid;gap:16px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:22px}
@@ -20540,6 +20556,7 @@ var sheet = `
 .ci-settings .ci-section{display:grid;gap:12px;padding:16px;border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l3));border-radius:var(--dsw-radius-xl,12px);background:var(--dsw-alias-settings-card-fill)}
 .ci-settings .ci-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ci-settings .ci-footer{padding-top:4px}.ci-settings .ci-note{display:flex;align-items:flex-start;gap:8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.ci-note svg{flex:none;margin-top:1px}
 .ci-settings .ci-notice{padding:10px 12px;border-radius:var(--dsw-radius-md,6px);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
+.ci-settings .ci-account-select{flex:1;min-width:120px;justify-content:space-between;text-align:left}.ci-account-select>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ci-account-select>svg{flex:none}
 @media(max-width:560px){.ci-settings .ci-grid{grid-template-columns:1fr}.ci-settings .ci-section{padding:12px}}
 .ci-settings input,.ci-settings select,.ci-settings button{font:inherit;color:inherit;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,6px);padding:6px 10px}
 .ci-settings label{display:grid;gap:6px;min-width:0}.ci-settings label>input:not([type=checkbox]){width:100%;min-width:0}.ci-settings .ci-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ci-settings .ci-inline>select{flex:1;min-width:120px}.ci-settings button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px}.ci-settings input:focus-visible,.ci-settings select:focus-visible,.ci-settings button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
@@ -20565,6 +20582,8 @@ function mountSettings(ctx) {
     const [query, setQuery] = import_react4.default.useState("");
     const [proxyUrl, setProxyUrl] = import_react4.default.useState(null);
     const [selected, setSelected] = import_react4.default.useState(null);
+    const [accountMenuOpen, setAccountMenuOpen] = import_react4.default.useState(false);
+    const accountButton = import_react4.default.useRef(null);
     if (view === "summary") return "Cursor \u96C6\u6210";
     const saved = snapshot.value?.providers?.cursor ?? {};
     const config2 = draft ?? {
@@ -20675,14 +20694,30 @@ function mountSettings(ctx) {
         h3(
           "div",
           { className: "ci-inline" },
-          h3(
-            "select",
-            { value: ref, disabled, onChange: (event) => {
-              setSelected(event.target.value);
+          h3(import_dsh_client_ui_primitives2.Menu, {
+            open: accountMenuOpen,
+            onClose: () => setAccountMenuOpen(false),
+            items: config2.accounts.map((row) => ({ id: row.apiKeyEnv, label: row.label })),
+            selectedId: ref,
+            align: "start",
+            portal: true,
+            onSelect: (id) => {
+              accountButton.current?.focus({ preventScroll: true });
+              setSelected(id);
               setKey("");
-            } },
-            ...config2.accounts.map((row) => h3("option", { key: row.apiKeyEnv, value: row.apiKeyEnv }, row.label))
-          ),
+              setAccountMenuOpen(false);
+            },
+            anchor: h3("button", {
+              ref: accountButton,
+              type: "button",
+              className: "ci-account-select",
+              disabled,
+              "aria-label": "\u9009\u62E9\u914D\u7F6E\u8D26\u53F7",
+              "aria-haspopup": "menu",
+              "aria-expanded": accountMenuOpen,
+              onClick: () => setAccountMenuOpen(!accountMenuOpen)
+            }, h3("span", null, account?.label ?? "\u9009\u62E9\u8D26\u53F7"), h3(import_dsh_client_ui_primitives2.IconChevronDownOutlineRegular, { "aria-hidden": true }))
+          }),
           h3("button", { type: "button", disabled, onClick: addAccount }, h3(Icon, { name: "plus" }), "\u6DFB\u52A0\u8D26\u53F7"),
           h3("button", { type: "button", disabled: disabled || config2.accounts.length < 2, onClick: () => {
             const accounts = config2.accounts.filter((row) => row.apiKeyEnv !== ref);

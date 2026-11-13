@@ -1,5 +1,6 @@
 import React from 'react';
 import {Icon} from './icons.js';
+import {Menu,IconChevronDownOutlineRegular} from '@deepseek-ai/dsh-client-ui-primitives';
 const h=React.createElement;
 const sheet=`
 .ci-settings{display:grid;gap:16px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:22px}
@@ -7,6 +8,7 @@ const sheet=`
 .ci-settings .ci-section{display:grid;gap:12px;padding:16px;border:.5px solid var(--dsw-alias-settings-card-stroke,var(--dsw-alias-border-l3));border-radius:var(--dsw-radius-xl,12px);background:var(--dsw-alias-settings-card-fill)}
 .ci-settings .ci-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ci-settings .ci-footer{padding-top:4px}.ci-settings .ci-note{display:flex;align-items:flex-start;gap:8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.ci-note svg{flex:none;margin-top:1px}
 .ci-settings .ci-notice{padding:10px 12px;border-radius:var(--dsw-radius-md,6px);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
+.ci-settings .ci-account-select{flex:1;min-width:120px;justify-content:space-between;text-align:left}.ci-account-select>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ci-account-select>svg{flex:none}
 @media(max-width:560px){.ci-settings .ci-grid{grid-template-columns:1fr}.ci-settings .ci-section{padding:12px}}
 .ci-settings input,.ci-settings select,.ci-settings button{font:inherit;color:inherit;background:var(--dsw-alias-bg-layer-1,transparent);border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,6px);padding:6px 10px}
 .ci-settings label{display:grid;gap:6px;min-width:0}.ci-settings label>input:not([type=checkbox]){width:100%;min-width:0}.ci-settings .ci-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ci-settings .ci-inline>select{flex:1;min-width:120px}.ci-settings button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px}.ci-settings input:focus-visible,.ci-settings select:focus-visible,.ci-settings button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
@@ -30,6 +32,8 @@ export function mountSettings(ctx) {
     const [query,setQuery]=React.useState('');
     const [proxyUrl,setProxyUrl]=React.useState(null);
     const [selected,setSelected]=React.useState(null);
+    const [accountMenuOpen,setAccountMenuOpen]=React.useState(false);
+    const accountButton=React.useRef(null);
     if(view==='summary')return 'Cursor 集成';
     const saved=snapshot.value?.providers?.cursor??{};
     const config=draft??{
@@ -103,8 +107,12 @@ export function mountSettings(ctx) {
       h('header',null,h('h2',null,'Cursor 集成'),h('p',{className:'ci-note'},'管理账号、连接和模型；账号用量与线路检测位于「Cursor 用量」。')),
       h('section',{className:'ci-section'},heading('key','账号与凭据'),
       h('div',{className:'ci-inline'},
-        h('select',{value:ref,disabled,onChange:event=>{setSelected(event.target.value);setKey('');}},
-          ...config.accounts.map(row=>h('option',{key:row.apiKeyEnv,value:row.apiKeyEnv},row.label))),
+        h(Menu,{open:accountMenuOpen,onClose:()=>setAccountMenuOpen(false),
+          items:config.accounts.map(row=>({id:row.apiKeyEnv,label:row.label})),selectedId:ref,align:'start',portal:true,
+          onSelect:id=>{accountButton.current?.focus({preventScroll:true});setSelected(id);setKey('');setAccountMenuOpen(false);},
+          anchor:h('button',{ref:accountButton,type:'button',className:'ci-account-select',disabled,
+            'aria-label':'选择配置账号','aria-haspopup':'menu','aria-expanded':accountMenuOpen,
+            onClick:()=>setAccountMenuOpen(!accountMenuOpen)},h('span',null,account?.label??'选择账号'),h(IconChevronDownOutlineRegular,{'aria-hidden':true}))}),
         h('button',{type:'button',disabled,onClick:addAccount},h(Icon,{name:'plus'}),'添加账号'),
         h('button',{type:'button',disabled:disabled||config.accounts.length<2,onClick:()=>{
           const accounts=config.accounts.filter(row=>row.apiKeyEnv!==ref);
