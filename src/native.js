@@ -140,6 +140,9 @@ export class NativeBridge {
         {type:'text',text:part.type === 'text' ? part.text : JSON.stringify(part)});
       pending.resolve({content,isError:result.isError === true});
     }
+    // A completed host handoff starts a new correction window. Never revive an
+    // exhausted batch: parallel invalid calls must still stop the run.
+    if(batch.length && !this.validationExhausted)this.validationFailures=0;
   }
   close() {
     this.closed = true;

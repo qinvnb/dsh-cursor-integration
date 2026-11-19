@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {retryBootstrapRequest,describeCatalogFailure} from './src/network.js';
 import {ProviderError} from './src/provider.js';
-import {defineAdapter} from './src/adapter.js';
+import {catalogMetadata,defineAdapter} from './src/adapter.js';
 import {LlmError} from '@deepseek-ai/dsh-llm';
 import {CursorTransport} from './src/transport.js';
 
@@ -31,6 +31,56 @@ test('a rejected shared directory request is removed so later reads can recover'
  assert.ok(replies.every(row=>row.status==='rejected'&&row.reason.code==='CURSOR_RATE_LIMITED'));
  assert.equal(calls,1);assert.equal((await transport.catalog('key'))[0].id,'live');assert.equal(calls,2);
  await transport.close();
+});
+
+test('shared catalog deadline allows recovery and late results cannot replace the fresh cache',async()=>{
+ let calls=0,release;
+ const delayed=new Promise(resolve=>{release=resolve;});
+ const transport=new CursorTransport({catalogTimeoutMs:20,loadSDK:async()=>({Cursor:{models:{list:async()=>
+   ++calls===1?delayed:[{id:'fresh'}],
+ }}})});
+ try {
+   await assert.rejects(transport.catalog('key'),{code:'TIMEOUT'});
+   assert.deepEqual(await transport.catalog('key'),[{id:'fresh'}]);
+   release([{id:'expired'}]);
+   await new Promise(resolve=>setImmediate(resolve));
+   assert.deepEqual(await transport.catalog('key'),[{id:'fresh'}]);
+   assert.equal(calls,2);
+ } finally {await transport.close();}
+});
+
+test('expired catalogs survive transient failures but never survive rejected credentials',async()=>{
+ let time=0,code;
+ const transport=new CursorTransport({catalogTTL:2,now:()=>time,loadSDK:async()=>({Cursor:{models:{list:async()=>{
+   if(code)throw Object.assign(new Error(),{code});
+   return [{id:'cached'}];
+ }}}})});
+ try {
+   await transport.catalog('key');time=3;code='unavailable';
+   assert.deepEqual(await transport.catalog('key'),[{id:'cached'}]);
+   await assert.rejects(transport.catalog('key',undefined,{refresh:true}),{code:'CURSOR_SERVICE_FAILED'});
+   code='unauthenticated';
+   await assert.rejects(transport.catalog('key'),{code:'CURSOR_AUTH_FAILED'});
+   code='unavailable';
+   await assert.rejects(transport.catalog('key'),{code:'CURSOR_SERVICE_FAILED'});
+ } finally {await transport.close();}
+});
+
+test('selector and requests use the same inherited context and discover reasoning before thinking',async()=>{
+ const parameter=(id,...values)=>({id,values:values.map(value=>({value}))});
+ const model={id:'chat',displayName:'Chat',parameters:[parameter('thinking','false','true'),
+   parameter('context','300k','1m'),parameter('reasoning_effort','low','high')]};
+ const sent=[];
+ const Adapter=defineAdapter({LlmAdapter:class{},profile:()=>({models:[{id:'chat',name:'Custom'}],contextWindow:300000}),
+   credential:async()=>'test',transport:{catalog:async()=>[model],async *stream(request){sent.push(request.model);yield {type:'text',text:'ok'};}}});
+ const adapter=new Adapter();
+ const details=await adapter.resolveModel('cursor',model.id);
+ assert.equal(details.context.contextWindow,300000);
+ assert.deepEqual(details.reasoning.efforts.map(effort=>effort.id),['low','high']);
+ assert.equal(catalogMetadata(model).maxContext,1000000);
+ assert.deepEqual(catalogMetadata({id:'unknown'}),{id:'unknown',name:'unknown',maxContext:null,reasoning:null});
+ for await(const event of adapter.stream({model:model.id,reasoningEffort:'high',messages:[]}))void event;
+ assert.deepEqual(sent,[{id:'chat',params:[{id:'context',value:'300k'},{id:'reasoning_effort',value:'high'}]}]);
 });
 
 test('HTTP 502/503 model discovery recovers on the third attempt',async()=>{

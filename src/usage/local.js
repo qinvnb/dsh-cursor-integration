@@ -1,7 +1,11 @@
+import {normalizeSdkUsage,usageFormat} from './normalize.js';
 const fields = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'];
-const empty = () => ({calls: 0, failed: 0, reportedCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0});
+const empty = () => ({calls: 0, failed: 0, reportedCalls: 0, uncalibratedRecords:0, sdkSends:0,sdkCreates:0,sdkResumes:0,hostRetries:0,sdkInternalRetries:null,inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0});
 function add(target, entry) {
+  if(entry.kind==='retry'){target.hostRetries++;return;}
   target.calls++; if (entry.failed) target.failed++;
+  if(entry.uncalibrated)target.uncalibratedRecords++;
+  for(const key of ['sdkSends','sdkCreates','sdkResumes'])target[key]+=entry[key]??0;
   if (entry.usage) {
     target.reportedCalls++;
     for (const field of fields) target[field] += Number.isSafeInteger(entry.usage[field]) && entry.usage[field] >= 0 ? entry.usage[field] : 0;
@@ -17,7 +21,10 @@ export function extractCalls(snapshot) {
     const event = snapshot.events[i];
     if (event.type === 'request/header') config = event.data.header.config;
     if (i < (snapshot.inheritedEventCount ?? 0) || config?.provider !== 'cursor') continue;
+    if(event.type==='llm/retry'){calls.push({kind:'retry',time:event.time,model:config.model??'unknown'});continue;}
     if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') continue;
+    const chunks=(event.data.stream??[]).map(record=>record.chunk??record.event??record);
+    const response=chunks.findLast(item=>item.type==='finish')?.replayState?.response??event.data.message?.source?.replayState?.response;
     let usage = event.data.usage;
     if (!usage) {
       for (const record of event.data.stream ?? []) {
@@ -29,7 +36,17 @@ export function extractCalls(snapshot) {
       const item = record.chunk ?? record.event ?? record;
       return item.type === 'finish' && ['error', 'aborted'].includes(item.reason?.kind);
     }) ?? false;
-    calls.push({time: event.time, model: config.model ?? 'unknown', failed: failure, usage});
+    const hadUsage=Boolean(usage)||Boolean(response?.usageUnavailable);
+    if(response?.usageUnavailable)usage=undefined;
+    if(usage && response?.usageFormat!==usageFormat){
+      if(response?.sdkVersion==='1.0.40' && response?.usageFormat==='cursor-inclusive-v1'){
+        try{usage=normalizeSdkUsage(usage);}catch{usage=undefined;}
+      }else usage=undefined;
+    }
+    const stages=(response?.attempts??[]).map(a=>a.timings?.transport??{});
+    const count=key=>stages.filter(stage=>Number.isFinite(stage[key])).length;
+    calls.push({time: event.time, model: config.model ?? 'unknown', failed: failure, usage,
+      uncalibrated:hadUsage&&!usage,sdkSends:count('sdkSendMs'),sdkCreates:count('sdkCreateMs'),sdkResumes:count('sdkResumeMs')});
   }
   return calls;
 }

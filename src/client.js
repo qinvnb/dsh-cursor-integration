@@ -20031,14 +20031,34 @@ var ResultValue = class {
 };
 
 // src/usage/remote.js
+var catalogRequest = {
+  mode: "strict",
+  typeSymbol: "dsh-cursor-integration#ModelCatalogRequest",
+  create: () => external_exports.object({ ref: external_exports.string(), draftKey: external_exports.string().optional() }),
+  jsonSchema: { type: "object", properties: { ref: { type: "string" }, draftKey: { type: "string" } }, required: ["ref"] }
+};
 var remoteInfo = createTypertRemoteInfo({ package: "dsh-cursor-integration", methods: {
-  ...Object.fromEntries(["getRouteChecks", "startRouteChecks", "stopRouteChecks"].map((name) => ["cursorIntegrationUsage/" + name, {
+  ...Object.fromEntries(["getCompactionSettings", "getRouteChecks", "startRouteChecks", "stopRouteChecks"].map((name) => ["cursorIntegrationUsage/" + name, {
     service: "cursorIntegrationUsage",
     description: name,
     invocation: { kind: "direct" },
     parameters: [],
     result: { mode: "strict", typeSymbol: "dsh-cursor-integration#RouteChecks", create: () => external_exports.json(), description: "Model connectivity check status", jsonSchema: {} }
   }])),
+  "cursorIntegrationUsage/setCompactionThreshold": {
+    service: "cursorIntegrationUsage",
+    description: "Update the native DSH compaction threshold through ConfigEditor.",
+    invocation: { kind: "direct" },
+    parameters: [{ name: "ratio", source: "json", codec: { mode: "strict", typeSymbol: "number", create: () => external_exports.number(), jsonSchema: { type: "number" } }, strictCodec: { mode: "strict", typeSymbol: "number", create: () => external_exports.number(), jsonSchema: { type: "number" } } }],
+    result: { mode: "strict", typeSymbol: "dsh-cursor-integration#CompactionSettings", create: () => external_exports.json(), jsonSchema: {} }
+  },
+  "cursorIntegrationUsage/getModelCatalog": {
+    service: "cursorIntegrationUsage",
+    description: "Read the Cursor model capabilities for the selected credential.",
+    invocation: { kind: "direct" },
+    parameters: [{ name: "request", source: "json", codec: catalogRequest, strictCodec: catalogRequest }],
+    result: { mode: "strict", typeSymbol: "dsh-cursor-integration#ModelCatalog", create: () => external_exports.json(), jsonSchema: {} }
+  },
   "cursorIntegrationUsage/getDisplayState": {
     service: "cursorIntegrationUsage",
     description: "Read the cached account for this session.",
@@ -20244,7 +20264,7 @@ async function apply(ctx) {
       stale ? "\u6570\u636E\u53EF\u80FD\u672A\u66F4\u65B0\uFF1A" + (error62 || account?.error) : "",
       ...(info?.meters ?? []).map((m) => `${m.label}\uFF1A\u5DF2\u7528 ${m.unit === "percent" ? percent(m.percent) : money(m.used)}\uFF0C\u5269\u4F59 ${m.unit === "percent" ? percent(m.remaining) : money(m.remaining)}`),
       info ? `\u8D26\u671F\u7ED3\u675F\uFF1A${date5(info.periodEnd)}` : "",
-      data?.local?.today ? `DSH \u4ECA\u5929\uFF1A${number4(data.local.today.calls)} \u6B21\u8C03\u7528\uFF0C\u5DF2\u8BB0\u5F55 ${number4(data.local.today.totalTokens)} Token\uFF08${data.local.today.reportedCalls} \u6B21\u6709\u7528\u91CF\u8BB0\u5F55\uFF09` : "",
+      data?.local?.today ? `DSH \u4ECA\u5929\uFF1A${number4(data.local.today.calls)} \u4E2A\u8C03\u7528\u6B65\u9AA4\uFF0C\u5DF2\u6821\u51C6 ${number4(data.local.today.totalTokens)} Token\uFF08${data.local.today.reportedCalls} \u6761\u7528\u91CF\u8BB0\u5F55\uFF09` : "",
       account?.fetchedAt ? `\u66F4\u65B0\uFF1A${date5(account.fetchedAt)}` : "",
       "\u70B9\u51FB\u67E5\u770B\u7528\u91CF\u660E\u7EC6"
     ].filter(Boolean).join("\n");
@@ -20255,7 +20275,8 @@ async function apply(ctx) {
     const checkpointIcon = checkpointFailed ? "warning" : checkpointBusy ? "refresh" : "checkpoint";
     const compressionBusy = compaction?.status === "running";
     const compressionFailed = compaction?.status === "failed";
-    const compressionText = compressionBusy ? "\u6B63\u5728\u751F\u6210\u6458\u8981\uFF0C\u8BF7\u7A0D\u5019" : compressionFailed ? "\u538B\u7F29\u5931\u8D25 \xB7 " + (compaction.error || "\u8BF7\u7A0D\u540E\u91CD\u8BD5") : compaction?.summarized ? "\u6458\u8981\u538B\u7F29\u5DF2\u5B8C\u6210 \xB7 " + date5(compaction.summarized) : "\u5C1A\u65E0\u6210\u529F\u7684\u6458\u8981\u538B\u7F29\u8BB0\u5F55";
+    const compressionCancelled = compaction?.error === "\u5DF2\u53D6\u6D88\u538B\u7F29";
+    const compressionText = compressionBusy ? "\u6B63\u5728\u751F\u6210\u6458\u8981\uFF0C\u8BF7\u7A0D\u5019" : compressionCancelled ? "\u5DF2\u53D6\u6D88\u538B\u7F29" : compressionFailed ? "\u538B\u7F29\u5931\u8D25 \xB7 " + (compaction.error || "\u8BF7\u7A0D\u540E\u91CD\u8BD5") : compaction?.summarized ? "\u6458\u8981\u538B\u7F29\u5DF2\u5B8C\u6210 \xB7 " + date5(compaction.summarized) : "\u5C1A\u65E0\u6210\u529F\u7684\u6458\u8981\u538B\u7F29\u8BB0\u5F55";
     const statusRow = (label, icon, text, tone2, extra) => h2(
       "span",
       { className: "cu-status-row cu-status-" + tone2, role: "status" },
@@ -20269,11 +20290,11 @@ async function apply(ctx) {
       { className: "cu-dock", "aria-label": "Cursor \u5DF2\u7528\u989D\u5EA6" },
       h2("style", null, styles2),
       cursor && statusRow("\u68C0\u67E5\u70B9", checkpointIcon, checkpoint ?? "\u7B49\u5F85\u672C\u8F6E\u8BF7\u6C42", checkpointFailed ? "error" : checkpointBusy ? "busy" : "normal"),
-      cursor && statusRow(
+      (cursor || compressionBusy || compressionFailed || compaction?.summarized) && statusRow(
         "\u4E0A\u4E0B\u6587\u538B\u7F29",
-        compressionFailed ? "warning" : compressionBusy ? "refresh" : "compress",
+        compressionFailed && !compressionCancelled ? "warning" : compressionBusy ? "refresh" : "compress",
         compressionText,
-        compressionFailed ? "error" : compressionBusy ? "busy" : "normal",
+        compressionFailed && !compressionCancelled ? "error" : compressionBusy ? "busy" : "normal",
         compaction?.pruned ? "\u5DE5\u5177\u8F93\u51FA\u6700\u8FD1\u88C1\u526A\u4E8E " + date5(compaction.pruned) : null
       ),
       h2(
@@ -20429,7 +20450,20 @@ async function apply(ctx) {
         "article",
         { className: "cu-card" },
         heading("chart", "\u8D26\u53F7\u6C60\u603B\u4F53\u7528\u91CF"),
-        h2("div", { className: "cu-quotas" }, ...(data?.totals ?? []).map((item) => h2("div", { key: item.key, className: "cu-quota" }, h2("span", null, quotaNames[item.key]), h2("div", { className: "cu-quota-ring" }, h2(Ring, { item, size: 64 }), h2("span", { className: "cu-quota-percent" }, percent(item.percent))), h2("small", null, (item.weighted ? "\u6309\u989D\u5EA6\u52A0\u6743" : "\u8D26\u53F7\u5E73\u5747") + " \xB7 " + item.count + "/" + item.total + " \u4E2A\u8D26\u53F7")))),
+        h2("div", { className: "cu-quotas" }, ...(data?.totals ?? []).map((item) => h2(
+          "div",
+          { key: item.key, className: "cu-quota" },
+          h2("span", { className: "cu-quota-name" }, quotaNames[item.key]),
+          h2("div", { className: "cu-quota-ring" }, h2(Ring, { item, size: 64 }), h2("span", { className: "cu-quota-percent" }, percent(item.percent))),
+          item.money ? h2(
+            import_react3.default.Fragment,
+            null,
+            h2("span", { className: "cu-quota-remaining" }, "\u5DF2\u7528 " + money(item.money.used)),
+            h2("span", { className: "cu-sub" }, "\u4E0A\u9650 " + money(item.money.limit) + " \xB7 \u5269\u4F59 " + money(item.money.remaining)),
+            item.money.count < item.money.total ? h2("span", { className: "cu-sub" }, "\u91D1\u989D\u8986\u76D6 " + item.money.count + "/" + item.money.total + " \u4E2A\u8D26\u53F7") : null
+          ) : h2("span", { className: "cu-sub" }, "\u91D1\u989D\u672A\u63D0\u4F9B"),
+          h2("small", { className: "cu-sub" }, (item.weighted ? "\u6309\u989D\u5EA6\u52A0\u6743" : "\u8D26\u53F7\u5E73\u5747") + " \xB7 " + item.count + "/" + item.total + " \u4E2A\u8D26\u53F7")
+        ))),
         data?.pool && h2("p", { className: "cu-sub" }, (data.pool.manual ? "\u624B\u52A8\u6307\u5B9A" : "\u81EA\u52A8\u9009\u8D26\u53F7") + " \xB7 \u672C\u671F\u5DF2\u8FC7 " + data.pool.cycle.elapsed + " / " + data.pool.cycle.days + " \u5929 \xB7 \u4E2A\u4EBA\u6309\u9700\u8F6F\u4E0A\u9650 " + percent(data.pool.cycle.percent)),
         data?.pool?.warning && h2("p", { className: "cu-notice", role: "status" }, data.pool.warning)
       ),
@@ -20532,18 +20566,29 @@ async function apply(ctx) {
         h2(
           "div",
           { className: "cu-grid" },
-          stat("\u6A21\u578B\u8C03\u7528", number4(usage?.calls), usage ? `\u5931\u8D25 / \u4E2D\u65AD ${number4(usage.failed)}` : null),
+          stat("DSH \u8C03\u7528\u6B65\u9AA4", number4(usage?.calls), usage ? `\u5931\u8D25 / \u4E2D\u65AD ${number4(usage.failed)}` : null),
           stat("Token \u5408\u8BA1", number4(usage?.totalTokens), usage ? `${usage.reportedCalls} \u6B21\u6709\u7528\u91CF\u8BB0\u5F55` : null),
           stat("\u8F93\u5165 / \u8F93\u51FA", usage ? number4(usage.inputTokens) + " / " + number4(usage.outputTokens) : "\u2014"),
           stat("\u7F13\u5B58\u8BFB / \u5199", usage ? number4(usage.cacheReadTokens) + " / " + number4(usage.cacheWriteTokens) : "\u2014")
         ),
+        h2(
+          "div",
+          { className: "cu-grid" },
+          stat("SDK \u53D1\u9001", number4(usage?.sdkSends)),
+          stat("SDK \u65B0\u5EFA / \u91CD\u5EFA", number4(usage?.sdkCreates)),
+          stat("\u68C0\u67E5\u70B9\u6062\u590D", number4(usage?.sdkResumes)),
+          stat("DSH \u81EA\u52A8\u91CD\u8BD5", number4(usage?.hostRetries)),
+          stat("SDK \u5185\u90E8\u91CD\u8BD5", "\u672A\u7EDF\u8BA1")
+        ),
+        usage?.uncalibratedRecords ? h2("p", { className: "cu-sub" }, number4(usage.uncalibratedRecords) + " \u6761\u5386\u53F2\u7528\u91CF\u53E3\u5F84\u65E0\u6CD5\u786E\u8BA4\uFF0C\u5DF2\u5355\u5217\u4E14\u4E0D\u8BA1\u5165 Token \u5408\u8BA1\u3002\u539F\u4F1A\u8BDD\u8BB0\u5F55\u4FDD\u7559\u3002") : null,
         range === "cycle" && local?.models?.length ? h2("div", { className: "cu-models" }, ...local.models.map((item) => h2(
           "div",
           { key: item.model, className: "cu-line" },
           h2("span", null, item.model),
-          h2("span", { className: "cu-sub" }, `${number4(item.calls)} \u6B21 \xB7 ${number4(item.totalTokens)} Token`)
+          h2("span", { className: "cu-sub" }, `${number4(item.calls)} \u6B65 \xB7 ${number4(item.totalTokens)} Token`)
         ))) : null,
         h2("p", { className: "cu-sub", title: "\u5386\u53F2\u4EC5\u4FDD\u5B58 Token\uFF0C\u4E0D\u6309\u6A21\u578B\u6807\u4EF7\u63A8\u7B97\u5B9E\u6536\u8D39\u7528\u3002" }, "DSH \u5355\u72EC\u8D39\u7528\u672A\u63D0\u4F9B \xB7 \u672C\u5730\u5386\u53F2\u7EDF\u8BA1\u5305\u542B\u6240\u6709\u5BC6\u94A5"),
+        h2("p", { className: "cu-sub" }, "SDK \u6B21\u6570\u6309\u5DF2\u8BB0\u5F55\u8BCA\u65AD\u7EDF\u8BA1\uFF0C\u65E7\u8BB0\u5F55\u53EF\u80FD\u4E0D\u5B8C\u6574\uFF1BDSH \u6B65\u9AA4\u4E0E\u5B98\u65B9\u8BA1\u8D39\u4E8B\u4EF6\u4E0D\u662F\u540C\u4E00\u53E3\u5F84\u3002"),
         local?.skippedSessions ? h2("p", { className: "cu-sub" }, `${local.skippedSessions} \u4E2A\u4F1A\u8BDD\u672A\u80FD\u8BFB\u53D6\uFF0C\u7EDF\u8BA1\u53EF\u80FD\u4E0D\u5B8C\u6574\u3002`) : null
       ),
       h2("footer", { className: "cu-sub cu-line" }, h2("span", null, "\u7528\u91CF\u540E\u53F0\u5237\u65B0\u95F4\u9694 " + (data?.pool?.refreshMinutes ?? 5) + " \u5206\u949F"), h2("a", { href: "https://cursor.com/dashboard?tab=usage", target: "_blank", rel: "noopener noreferrer" }, "\u5B98\u7F51\u7528\u91CF \u2197"))
@@ -20583,8 +20628,69 @@ var note = (text) => h3("p", { className: "ci-note" }, h3(Icon, { name: "info" }
 function modelRow(row) {
   return typeof row === "string" ? { id: row } : structuredClone(row);
 }
+function modelCapabilities(row) {
+  const control = row.reasoning;
+  const toggle = control?.id === "thinking" && control.values.every((value) => ["true", "false"].includes(value.id));
+  const reasoning = toggle ? "\u63A8\u7406\u53EF\u5F00\u5173" : control ? "\u63A8\u7406 " + control.values.map((value) => value.name).join(" / ") : "\u76EE\u5F55\u672A\u63D0\u4F9B\u53EF\u9009\u63A8\u7406\u6863\u4F4D";
+  const context = row.maxContext ? "\u76EE\u5F55\u4E0A\u9650 " + row.maxContext.toLocaleString() + " Token" : "Cursor \u672A\u516C\u5E03\u4E0A\u4E0B\u6587\u5BB9\u91CF";
+  return h3("small", null, context + " \xB7 " + reasoning);
+}
+function CompactionControl({ api }) {
+  const [snapshot, setSnapshot] = import_react4.default.useState(null), [draft, setDraft] = import_react4.default.useState(null), [notice, setNotice] = import_react4.default.useState(""), [busy, setBusy] = import_react4.default.useState(false);
+  import_react4.default.useEffect(() => {
+    let alive = true;
+    api.getCompactionSettings().then((reply) => {
+      if (alive) setSnapshot(reply.ok ? reply.value : { available: false, error: "\u8BFB\u53D6\u539F\u751F\u538B\u7F29\u914D\u7F6E\u5931\u8D25\u3002" });
+    }).catch(() => {
+      if (alive) setSnapshot({ available: false, error: "\u65E0\u6CD5\u8FDE\u63A5 DSH \u914D\u7F6E\u670D\u52A1\u3002" });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [api]);
+  const value = draft ?? snapshot?.thresholdRatio ?? "";
+  const disabled = busy || !snapshot?.available;
+  async function save() {
+    const ratio = Number(value);
+    if (disabled) return;
+    if (!Number.isFinite(ratio) || ratio <= 0 || ratio > 1) {
+      setNotice("\u8BF7\u8F93\u5165\u5927\u4E8E 0\u3001\u4E0D\u8D85\u8FC7 1 \u7684\u6BD4\u4F8B\u3002");
+      return;
+    }
+    setBusy(true);
+    setNotice("");
+    try {
+      const reply = await api.setCompactionThreshold(ratio);
+      if (!reply.ok) throw Error();
+      setSnapshot(reply.value);
+      if (reply.value.error) setNotice(reply.value.error);
+      else {
+        setDraft(null);
+        setNotice("DSH \u539F\u751F\u538B\u7F29\u9608\u503C\u5DF2\u4FDD\u5B58\u3002");
+      }
+    } catch {
+      setNotice("\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return h3(
+    "section",
+    { className: "ci-section" },
+    heading2("compress", "DSH \u81EA\u52A8\u538B\u7F29"),
+    h3("label", null, h3("span", null, "\u538B\u7F29\u89E6\u53D1\u6BD4\u4F8B\uFF080\uFF5E1\uFF09"), h3("input", { type: "number", min: 0.01, max: 1, step: 0.01, disabled, value, placeholder: snapshot ? "\u4E0D\u53EF\u7528" : "\u8BFB\u53D6\u4E2D\u2026", onChange: (event) => setDraft(event.target.value), onKeyDown: (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void save();
+      }
+    } })),
+    note("\u76F4\u63A5\u4FEE\u6539 DSH \u539F\u751F\u7B56\u7565\uFF0C\u4F5C\u7528\u4E8E\u4F7F\u7528\u8BE5\u7B56\u7565\u7684\u6240\u6709\u6A21\u578B\uFF1B0.7 \u8868\u793A\u8FBE\u5230\u5BB9\u91CF\u7684 70% \u65F6\u89E6\u53D1\uFF0C\u5B9E\u9645\u8FD8\u53D7\u8F93\u51FA\u9884\u7559\u548C\u5B89\u5168\u4F59\u91CF\u9650\u5236\u3002\u6A21\u578B\u4E13\u5C5E\u7B56\u7565\u5982\u6709\u8986\u76D6\uFF0C\u4ECD\u4EE5\u8986\u76D6\u503C\u4E3A\u51C6\u3002"),
+    h3("button", { type: "button", disabled, onClick: save }, h3(Icon, { name: "check" }), busy ? "\u4FDD\u5B58\u4E2D\u2026" : "\u4FDD\u5B58\u538B\u7F29\u9608\u503C"),
+    notice || snapshot?.error ? h3("p", { className: "ci-note", role: "status" }, notice || snapshot.error) : null
+  );
+}
 function mountSettings(ctx) {
-  function Panel({ scope, view }) {
+  function Panel({ scope, view, compactionApi }) {
     const snapshot = import_react4.default.useSyncExternalStore((fn) => scope.subscribe(fn), () => scope.getSnapshot());
     const [draft, setDraft] = import_react4.default.useState(null);
     const [key, setKey] = import_react4.default.useState("");
@@ -20616,12 +20722,12 @@ function mountSettings(ctx) {
       setBusy(true);
       setNotice("");
       try {
-        const response = await ctx.remote.llm.discoverModels("cursor-integration", {
-          provider: "cursor",
-          ...key.trim() ? { apiKey: key.trim() } : {}
+        const response = await compactionApi.getModelCatalog({
+          ref,
+          ...key.trim() ? { draftKey: key.trim() } : {}
         });
         if (!response.ok) throw Error();
-        setCatalog(response.value.filter((row) => !row.id.includes("@")));
+        setCatalog(response.value);
         setNotice("\u6A21\u578B\u76EE\u5F55\u5DF2\u66F4\u65B0\uFF0C\u70B9\u51FB\u6DFB\u52A0\u9700\u8981\u7684\u6A21\u578B\u540E\u4FDD\u5B58\u3002");
       } catch {
         setNotice("\u6A21\u578B\u76EE\u5F55\u83B7\u53D6\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u8D26\u53F7\u548C\u4EE3\u7406\u3002");
@@ -20693,6 +20799,7 @@ function mountSettings(ctx) {
       change({ accounts: [...config2.accounts, { label: "\u65B0\u8D26\u53F7", apiKeyEnv, configured: false }] });
       setSelected(apiKeyEnv);
       setKey("");
+      setCatalog([]);
     }
     return h3(
       "form",
@@ -20717,6 +20824,7 @@ function mountSettings(ctx) {
               accountButton.current?.focus({ preventScroll: true });
               setSelected(id);
               setKey("");
+              setCatalog([]);
               setAccountMenuOpen(false);
             },
             anchor: h3("button", {
@@ -20736,6 +20844,7 @@ function mountSettings(ctx) {
             change({ accounts, apiKeyEnv: accounts[0].apiKeyEnv });
             setSelected(accounts[0].apiKeyEnv);
             setKey("");
+            setCatalog([]);
           } }, h3(Icon, { name: "trash" }), "\u79FB\u9664\u6B64\u8D26\u53F7")
         ),
         h3(
@@ -20747,7 +20856,10 @@ function mountSettings(ctx) {
             autoComplete: "new-password",
             value: key,
             placeholder: account?.configured ? "\u5DF2\u4FDD\u5B58\uFF0C\u7559\u7A7A\u7EE7\u7EED\u4F7F\u7528" : "\u7C98\u8D34\u6B64\u8D26\u53F7\u7684 API Key",
-            onChange: (event) => setKey(event.target.value)
+            onChange: (event) => {
+              setKey(event.target.value);
+              setCatalog([]);
+            }
           })
         ),
         note("\u5BC6\u94A5\u4FDD\u5B58\u5728 DSH \u51ED\u636E\u670D\u52A1\u3002\u4FDD\u5B58\u540E\uFF0C\u65B0\u8BF7\u6C42\u4F7F\u7528\u5F53\u524D\u8D26\u53F7\u3002")
@@ -20770,6 +20882,7 @@ function mountSettings(ctx) {
         ),
         note("\u4EE3\u7406\u53EA\u4F5C\u7528\u4E8E Cursor SDK \u548C\u76F8\u5173\u67E5\u8BE2\uFF1B\u7559\u7A7A\u76F4\u8FDE\u3002\u7528\u91CF\u5728\u540E\u53F0\u5B9A\u65F6\u5237\u65B0\uFF0C\u8BF7\u6C42\u8BFB\u53D6\u5DF2\u4FDD\u5B58\u7684\u8C03\u5EA6\u7ED3\u679C\u3002")
       ),
+      compactionApi ? h3(CompactionControl, { api: compactionApi }) : note("\u5F53\u524D DSH \u672A\u63D0\u4F9B\u539F\u751F\u538B\u7F29\u914D\u7F6E\u3002"),
       h3(
         "section",
         { className: "ci-section" },
@@ -20777,7 +20890,7 @@ function mountSettings(ctx) {
         h3(
           "div",
           { className: "ci-inline" },
-          h3("button", { type: "button", disabled, onClick: discover }, h3(Icon, { name: "refresh" }), "\u83B7\u53D6\u6A21\u578B\u76EE\u5F55"),
+          h3("button", { type: "button", disabled: disabled || !compactionApi, onClick: discover }, h3(Icon, { name: "refresh" }), "\u83B7\u53D6\u6A21\u578B\u76EE\u5F55"),
           h3("button", { type: "button", disabled, onClick: () => change({ models: void 0 }) }, "\u8DDF\u968F\u8D26\u53F7\u5168\u90E8\u6A21\u578B")
         ),
         field("\u641C\u7D22\u6A21\u578B", { value: query, onChange: (event) => setQuery(event.target.value) }),
@@ -20785,6 +20898,7 @@ function mountSettings(ctx) {
           "div",
           { key: row.id, className: "ci-inline" },
           h3("span", null, row.name ?? row.id),
+          modelCapabilities(row),
           h3("button", { type: "button", disabled, onClick: () => change({ models: [...config2.models ?? [], { id: row.id, name: "Cursor " + (row.name ?? row.id) }] }) }, "\u6DFB\u52A0")
         )),
         ...(config2.models ?? []).filter((row) => (row.id + " " + (row.name ?? "")).toLowerCase().includes(query.toLowerCase())).map((row) => h3(
@@ -20803,6 +20917,8 @@ function mountSettings(ctx) {
             value: row.contextWindow ?? "",
             onChange: (event) => editModel(row.id, { contextWindow: event.target.value ? Number(event.target.value) : void 0 })
           }),
+          h3("small", null, row.contextWindow ? "\u5F53\u524D\u4F7F\u7528\u6A21\u578B\u624B\u52A8\u914D\u7F6E\u7684\u5BB9\u91CF\u3002" : config2.contextWindow ? "\u7EE7\u627F\u5168\u5C40\u5BB9\u91CF " + config2.contextWindow.toLocaleString() + " Token\u3002" : "\u7559\u7A7A\u65F6\u4F7F\u7528 Cursor \u76EE\u5F55\u7ED9\u51FA\u7684\u5BB9\u91CF\u3002"),
+          catalog.some((model) => model.id === row.id) ? modelCapabilities(catalog.find((model) => model.id === row.id)) : null,
           h3(
             "div",
             { className: "ci-inline" },
@@ -20832,19 +20948,20 @@ function mountSettings(ctx) {
           setDraft(null);
           setKey("");
           setSelected(null);
+          setCatalog([]);
           setProxyUrl(null);
           setNotice("");
         } }, "\u53D6\u6D88\u4FEE\u6539")
       )
     );
   }
-  ctx.inject(["configForms"], (child) => {
+  ctx.inject(["configForms", "remote.cursorIntegrationUsage"], (child) => {
     const forms = child.configForms;
     child.effect(() => forms.whileServed(["cursor-integration"], () => {
       const bundle = child.slots.inject("plugins.bundle.config", () => child.slots.register({
         name: "plugins.bundle.config",
         key: "dsh-cursor-integration"
-      }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration") })));
+      }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration"), compactionApi: child.remote.cursorIntegrationUsage })));
       let section;
       try {
         section = child.slots.inject("settings.section", () => child.slots.register({
@@ -20853,7 +20970,7 @@ function mountSettings(ctx) {
           order: 24,
           label: () => "Cursor \u96C6\u6210",
           icon: () => h3(Icon, { name: "model" })
-        }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration"), view: "editor" })));
+        }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration"), compactionApi: child.remote.cursorIntegrationUsage, view: "editor" })));
       } catch (error62) {
         bundle();
         throw error62;
@@ -20923,7 +21040,7 @@ function mountContext(ctx) {
 }
 
 // client/index.js
-var inject2 = Array.from(/* @__PURE__ */ new Set([...inject, "remote.credentials", "remote.llm"]));
+var inject2 = Array.from(/* @__PURE__ */ new Set([...inject, "remote.credentials"]));
 async function apply2(ctx) {
   mountSettings(ctx);
   mountContext(ctx);

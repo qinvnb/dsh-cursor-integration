@@ -12,7 +12,13 @@ function parameters(model) {
   }
   return Array.from(grouped.values());
 }
-const reasoning = entry => parameters(entry).find(p => ['effort','reasoning','thinking'].includes(p.id));
+function reasoning(entry) {
+  const definitions=parameters(entry);
+  for (const id of ['reasoning_effort','effort','reasoning','thinking']) {
+    const definition=definitions.find(p=>p.id===id && p.values.length);
+    if (definition) return definition;
+  }
+}
 export function contextChoices(entry) {
   const definition = parameters(entry).find(p => p.id === 'context');
   return (definition?.values ?? []).flatMap(item => {
@@ -20,6 +26,14 @@ export function contextChoices(entry) {
     const tokens = m ? Number(m[1]) * ({k:1000,m:1000000}[m[2]?.toLowerCase()] ?? 1) : NaN;
     return Number.isSafeInteger(tokens) && tokens > 0 ? [{value:item.value,tokens}] : [];
   }).sort((a,b) => a.tokens-b.tokens);
+}
+export function catalogMetadata(model) {
+  const control=reasoning(model);
+  return {
+    id:model.id,name:model.displayName ?? model.id,
+    maxContext:contextChoices(model).at(-1)?.tokens ?? null,
+    reasoning:control ? {id:control.id,values:control.values.map(value=>({id:value.value,name:value.displayName ?? value.value}))} : null,
+  };
 }
 export function modelSelection(identifier, models, effort, fast, budget) {
   const catalog = models.map(m => ({...m,parameters:parameters(m).map(p => ({
@@ -56,6 +70,16 @@ const configured = (profile,id) => profile.models?.find(m => typeof m === 'objec
   profile.models?.find(m => typeof m === 'object' && m.id === id.split('@')[0]);
 const displayName = value => /^Cursor(?:\s|$)/i.test(value) ? value : 'Cursor '+value;
 
+function configuredSelection(id,models,profile,effort) {
+  const custom=configured(profile,id);
+  const budget=custom?.contextWindow ?? profile.contextWindow;
+  const selection=modelSelection(id,models,effort,custom?.fast,budget);
+  const entry=models.find(model=>model.id===selection.id);
+  const context=selection.params.find(parameter=>parameter.id==='context')?.value;
+  const capacity=budget ?? contextChoices(entry).find(choice=>choice.value===context)?.tokens;
+  return {selection,entry,custom,capacity};
+}
+
 export function defineAdapter(dependencies) {
   const {
     LlmAdapter,LlmError,profile,credential,transport,routeAccount,preferredRoute,directTransport,
@@ -87,12 +111,7 @@ export function defineAdapter(dependencies) {
     async resolveModel(provider,id,signal) {
       const route = await routeAccount?.(id,signal,undefined,true);
       const models = route ? route.models ?? await transport.catalog(route.key,signal) : await this.account(signal);
-      const custom = configured(profile(),id);
-      const selected = modelSelection(id,models,undefined,custom?.fast,custom?.contextWindow ?? profile().contextWindow);
-      const entry = models.find(m=>m.id===selected.id);
-      const context = selected.params.find(p=>p.id==='context');
-      const capacity = custom?.contextWindow ?? profile().contextWindow ??
-        contextChoices(entry).find(c=>c.value===context?.value)?.tokens;
+      const {entry,custom,capacity}=configuredSelection(id,models,profile());
       const efforts = reasoning(entry)?.values;
       return {
         provider,id,name:custom?.name || displayName(entry.displayName || id),
@@ -131,7 +150,9 @@ export function defineAdapter(dependencies) {
         }
       }
       const response=()=>({
-        protocol:'cursor-native-v1',accountRef:diagnostics.accountRef,networkRoute:diagnostics.networkRoute,
+        protocol:'cursor-native-v1',usageFormat:'cursor-exclusive-v1',sdkVersion:'1.0.40',
+        ...(diagnostics.usageUnavailable?{usageUnavailable:true}:{}),accountRef:diagnostics.accountRef,networkRoute:diagnostics.networkRoute,
+        ...(diagnostics.path?{runtimePath:diagnostics.path}:{}),
         ...(diagnostics.continuation ? {continuation:diagnostics.continuation} : {}),attempts:[diagnostics],
       });
       try {
@@ -157,8 +178,7 @@ export function defineAdapter(dependencies) {
         diagnostics.networkRoute=continuation ? previous.networkRoute ?? 'proxy' : preferredRoute?.(account?.ref,options.model) ?? 'proxy';
         const channel=diagnostics.networkRoute==='direct' && directTransport ? directTransport : transport;
         const catalog=account?.models ?? await timed('catalogMs',()=>transport.catalog(apiKey,options.signal));
-        const custom=configured(profile(),options.model);
-        const selection=modelSelection(options.model,catalog,options.reasoningEffort,custom?.fast ?? false,custom ? custom.contextWindow : profile().contextWindow);
+        const {selection}=configuredSelection(options.model,catalog,profile(),options.reasoningEffort);
         const prompt=()=>{
           let text;
           if (summary) {
@@ -186,6 +206,8 @@ export function defineAdapter(dependencies) {
         for await (const event of channel.stream(request)) {
           if (['text','reasoning','tool-call'].includes(event.type)) yield* append(event);
           if (event.type==='usage') usage.push(event.billing);
+          if (event.type==='usage-unavailable') diagnostics.usageUnavailable=true;
+          if (event.type==='path') diagnostics.path=event.label;
           if (event.type==='continuation') diagnostics.continuation=event.token;
           if (event.type==='diagnostic') diagnostics.upstream=event.summary;
           if (event.type==='timing') {

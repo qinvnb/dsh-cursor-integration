@@ -21,7 +21,17 @@ export function totals(rows) {
     const weighted = items.length > 0 && items.every(item => item.unit === 'usd' && item.limit > 0 && Number.isFinite(item.used));
     const sum = field => items.reduce((value,item) => value + item[field], 0);
     const percent = !items.length ? null : weighted ? 100 * sum('used') / sum('limit') : sum('percent') / items.length;
-    return {key, percent, weighted, count:items.length, total:rows.length};
+    const amounts=rows.filter(row=>row.account.status==='ready').map(row=>row.account.data?.meters.find(item=>
+      item.key===key && item.unit==='usd' && Number.isFinite(item.used))).filter(Boolean);
+    const amountSum=field=>amounts.reduce((value,item)=>value+item[field],0);
+    const money=amounts.length?{
+      used:amountSum('used'),
+      limit:amounts.every(item=>Number.isFinite(item.limit))?amountSum('limit'):null,
+      remaining:amounts.every(item=>Number.isFinite(item.remaining)||Number.isFinite(item.limit))?
+        amounts.reduce((value,item)=>value+(Number.isFinite(item.remaining)?item.remaining:Math.max(0,item.limit-item.used)),0):null,
+      count:amounts.length,total:rows.length,
+    }:null;
+    return {key, percent, weighted, count:items.length, total:rows.length,money};
   });
 }
 // SDK model variants share the base model's usage pool. Auto aliases use the
@@ -100,7 +110,7 @@ export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval
     }
     const models=[...union.values()];
     const fingerprint=rows=>JSON.stringify(rows?.slice().sort((a,b)=>a.id.localeCompare(b.id)));
-    const changed=models.length>0&&fingerprint(snapshot?.models)!==fingerprint(models);
+    const changed=fingerprint(snapshot?.models??[])!==fingerprint(models);
     snapshot={byModel,candidates,models,byId:new Map(rows.map(row=>[row.id,row])),totals:totals(rows),updatedAt:now().getTime()};
     if(changed)onModelsChanged();
   }

@@ -48,7 +48,7 @@ export async function apply(ctx) {
     const title = ['当前密钥：' + identity, stale ? '数据可能未更新：' + (error || account?.error) : '',
       ...(info?.meters ?? []).map(m => `${m.label}：已用 ${m.unit === 'percent' ? percent(m.percent) : money(m.used)}，剩余 ${m.unit === 'percent' ? percent(m.remaining) : money(m.remaining)}`),
       info ? `账期结束：${date(info.periodEnd)}` : '',
-      data?.local?.today ? `DSH 今天：${number(data.local.today.calls)} 次调用，已记录 ${number(data.local.today.totalTokens)} Token（${data.local.today.reportedCalls} 次有用量记录）` : '',
+      data?.local?.today ? `DSH 今天：${number(data.local.today.calls)} 个调用步骤，已校准 ${number(data.local.today.totalTokens)} Token（${data.local.today.reportedCalls} 条用量记录）` : '',
       account?.fetchedAt ? `更新：${date(account.fetchedAt)}` : '', '点击查看用量明细'].filter(Boolean).join('\n');
     const cursor=modelRoute?.provider==='cursor';
     const checkpoint=display?.sessionId===sessionId?display.path:null;
@@ -57,8 +57,9 @@ export async function apply(ctx) {
     const checkpointIcon=checkpointFailed?'warning':checkpointBusy?'refresh':'checkpoint';
     const compressionBusy=compaction?.status==='running';
     const compressionFailed=compaction?.status==='failed';
+    const compressionCancelled=compaction?.error==='已取消压缩';
     const compressionText=compressionBusy?'正在生成摘要，请稍候':
-      compressionFailed?'压缩失败 · '+(compaction.error||'请稍后重试'):
+      compressionCancelled?'已取消压缩':compressionFailed?'压缩失败 · '+(compaction.error||'请稍后重试'):
       compaction?.summarized?'摘要压缩已完成 · '+date(compaction.summarized):'尚无成功的摘要压缩记录';
     const statusRow=(label,icon,text,tone,extra)=>h('span',{className:'cu-status-row cu-status-'+tone,role:'status'},
       h(Icon,{name:icon,className:'cu-status-icon'}),
@@ -67,8 +68,8 @@ export async function apply(ctx) {
       extra?h('span',{className:'cu-status-detail'},extra):null);
     return h('span', {className: 'cu-dock', 'aria-label':'Cursor 已用额度'}, h('style', null, styles),
       cursor && statusRow('检查点',checkpointIcon,checkpoint??'等待本轮请求',checkpointFailed?'error':checkpointBusy?'busy':'normal'),
-      cursor && statusRow('上下文压缩',compressionFailed?'warning':compressionBusy?'refresh':'compress',
-        compressionText,compressionFailed?'error':compressionBusy?'busy':'normal',
+      (cursor||compressionBusy||compressionFailed||compaction?.summarized) && statusRow('上下文压缩',compressionFailed&&!compressionCancelled?'warning':compressionBusy?'refresh':'compress',
+        compressionText,compressionFailed&&!compressionCancelled?'error':compressionBusy?'busy':'normal',
         compaction?.pruned?'工具输出最近裁剪于 '+date(compaction.pruned):null),
       h('span',{className:'cu-quota-row'},
       h(Popup,{label:'查看和切换 Cursor 账号',trigger:[h(Icon,{key:'icon',name:'account'}),h('span',{key:'name',className:'cu-key-label'},switching?'切换中…':identity)]},close=>h(React.Fragment,null,
@@ -145,7 +146,15 @@ export async function apply(ctx) {
         h('button', {type: 'button', onClick: refresh, disabled: busy},h(Icon,{name:'refresh'}),busy ? '查询中…' : '刷新')),
       error ? h('p', {role: 'alert', className: 'cu-notice'},h(Icon,{name:'warning'}),error) : null,
       h('article',{className:'cu-card'},heading('chart','账号池总体用量'),
-        h('div',{className:'cu-quotas'},...(data?.totals??[]).map(item=>h('div',{key:item.key,className:'cu-quota'},h('span',null,quotaNames[item.key]),h('div',{className:'cu-quota-ring'},h(Ring,{item,size:64}),h('span',{className:'cu-quota-percent'},percent(item.percent))),h('small',null,(item.weighted?'按额度加权':'账号平均')+' · '+item.count+'/'+item.total+' 个账号')))),
+        h('div',{className:'cu-quotas'},...(data?.totals??[]).map(item=>h('div',{key:item.key,className:'cu-quota'},
+          h('span',{className:'cu-quota-name'},quotaNames[item.key]),
+          h('div',{className:'cu-quota-ring'},h(Ring,{item,size:64}),h('span',{className:'cu-quota-percent'},percent(item.percent))),
+          item.money?h(React.Fragment,null,
+            h('span',{className:'cu-quota-remaining'},'已用 '+money(item.money.used)),
+            h('span',{className:'cu-sub'},'上限 '+money(item.money.limit)+' · 剩余 '+money(item.money.remaining)),
+            item.money.count<item.money.total?h('span',{className:'cu-sub'},'金额覆盖 '+item.money.count+'/'+item.money.total+' 个账号'):null):
+            h('span',{className:'cu-sub'},'金额未提供'),
+          h('small',{className:'cu-sub'},(item.weighted?'按额度加权':'账号平均')+' · '+item.count+'/'+item.total+' 个账号')))),
         data?.pool && h('p',{className:'cu-sub'},(data.pool.manual?'手动指定':'自动选账号')+' · 本期已过 '+data.pool.cycle.elapsed+' / '+data.pool.cycle.days+' 天 · 个人按需软上限 '+percent(data.pool.cycle.percent)),
         data?.pool?.warning && h('p',{className:'cu-notice',role:'status'},data.pool.warning)),
       h('article',{className:'cu-card'},h('div',{className:'cu-line'},heading('network','模型线路'),h('button',{type:'button',className:'cu-button',onClick:toggleChecks},h(Icon,{name:'network'}),checks?.running?'停止检测':'一键检测模型线路')),
@@ -184,13 +193,19 @@ export async function apply(ctx) {
           anchor:h('button',{ref:selectorRef,type:'button',className:'cu-range','aria-label':'统计范围','aria-haspopup':'menu','aria-expanded':menuOpen,onClick:()=>setMenuOpen(!menuOpen)},
             range==='today'?'今天':range==='all'?'全部历史':local?.cycleSource==='calendar'?'本月':'当前账期',h(IconChevronDownOutlineRegular,{'aria-hidden':true}))})),
         local?.error ? h('p', {className: 'cu-notice'}, local.error) : null,
-        h('div', {className: 'cu-grid'}, stat('模型调用', number(usage?.calls), usage ? `失败 / 中断 ${number(usage.failed)}` : null),
+        h('div', {className: 'cu-grid'}, stat('DSH 调用步骤', number(usage?.calls), usage ? `失败 / 中断 ${number(usage.failed)}` : null),
           stat('Token 合计', number(usage?.totalTokens), usage ? `${usage.reportedCalls} 次有用量记录` : null),
           stat('输入 / 输出', usage ? number(usage.inputTokens) + ' / ' + number(usage.outputTokens) : '—'),
           stat('缓存读 / 写', usage ? number(usage.cacheReadTokens) + ' / ' + number(usage.cacheWriteTokens) : '—')),
+        h('div',{className:'cu-grid'},
+          stat('SDK 发送',number(usage?.sdkSends)),stat('SDK 新建 / 重建',number(usage?.sdkCreates)),
+          stat('检查点恢复',number(usage?.sdkResumes)),stat('DSH 自动重试',number(usage?.hostRetries)),
+          stat('SDK 内部重试','未统计')),
+        usage?.uncalibratedRecords?h('p',{className:'cu-sub'},number(usage.uncalibratedRecords)+' 条历史用量口径无法确认，已单列且不计入 Token 合计。原会话记录保留。'):null,
         range === 'cycle' && local?.models?.length ? h('div', {className: 'cu-models'}, ...local.models.map(item => h('div', {key: item.model, className: 'cu-line'},
-          h('span', null, item.model), h('span', {className: 'cu-sub'}, `${number(item.calls)} 次 · ${number(item.totalTokens)} Token`)))) : null,
+          h('span', null, item.model), h('span', {className: 'cu-sub'}, `${number(item.calls)} 步 · ${number(item.totalTokens)} Token`)))) : null,
         h('p', {className: 'cu-sub', title:'历史仅保存 Token，不按模型标价推算实收费用。'}, 'DSH 单独费用未提供 · 本地历史统计包含所有密钥'),
+        h('p',{className:'cu-sub'},'SDK 次数按已记录诊断统计，旧记录可能不完整；DSH 步骤与官方计费事件不是同一口径。'),
         local?.skippedSessions ? h('p', {className:'cu-sub'}, `${local.skippedSessions} 个会话未能读取，统计可能不完整。`) : null),
       h('footer', {className: 'cu-sub cu-line'}, h('span',null,'用量后台刷新间隔 '+(data?.pool?.refreshMinutes??5)+' 分钟'), h('a', {href: 'https://cursor.com/dashboard?tab=usage', target: '_blank', rel: 'noopener noreferrer'}, '官网用量 ↗')));
   }

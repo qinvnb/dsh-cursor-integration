@@ -2,7 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {RuntimeSession} from './runtime.js';
 import {bounded,ProviderError} from './provider.js';
 import {bridgeIdentity,historyIdentity,stableHistory,isPrunedHistory} from './native.js';
-import {claim} from './checkpoints.js';
+import {claim,publish} from './checkpoints.js';
 import {latestRuntimeContext} from './request-context.js';
 import {describeCatalogFailure} from './network.js';
 
@@ -10,10 +10,13 @@ export class CursorTransport {
   constructor(options={}) {
     this.loadSDK=options.loadSDK??(()=>import('@cursor/sdk'));
     this.timeoutMs=options.timeoutMs??1800000;
+    this.catalogTimeoutMs=options.catalogTimeoutMs??30000;
     this.catalogTTL=options.catalogTTL??300000;
     this.now=options.now??Date.now;
     this.networkScope=options.networkScope??(action=>action());
-    this.enableAgentRetries=Boolean(options.networkScope);
+    this.networkRoute=options.networkScope?'proxy':'direct';
+    this.enableAgentRetries=options.enableAgentRetries??false;
+    this.requestDiagnostics=options.requestDiagnostics;
     this.replaceSystemPrompt=options.replaceSystemPrompt??false;
     this.checkpointRoot=options.checkpointRoot;
     this.onPath=options.onPath??(()=>{});
@@ -22,9 +25,11 @@ export class CursorTransport {
     this.closed=false;
     this.catalogs=new Map();
     this.catalogRequests=new Map();
+    this.catalogController=new AbortController();
     this.sessions=new Set();
     this.idle=new Map();
     this.continuations=new Map();
+    this.submitted=new Map();
   }
   check(key,signal) {
     if (this.closed) throw new ProviderError('DISPOSED','Transport closed');
@@ -39,31 +44,65 @@ export class CursorTransport {
     try {
       let operation=this.catalogRequests.get(digest);
       if(!operation) {
-        operation=Promise.resolve().then(()=>this.networkScope(async()=>{
+        operation=bounded(()=>this.networkScope(async()=>{
           const sdk=await this.loadSDK();
-          const models=await sdk.Cursor.models.list({apiKey});
-          if(!this.closed) {
-            this.catalogs.set(digest,{models:structuredClone(models),until:this.now()+this.catalogTTL});
-            if(this.catalogs.size>8)this.catalogs.delete(this.catalogs.keys().next().value);
-          }
+          if(this.closed || this.catalogRequests.get(digest)!==operation)throw new ProviderError('ABORTED','Catalog query expired');
+          return sdk.Cursor.models.list({apiKey});
+        }),{signal:this.catalogController.signal,timeoutMs:this.catalogTimeoutMs}).then(models=>{
+          if(this.closed)throw new ProviderError('DISPOSED','Transport closed');
+          this.catalogs.delete(digest);
+          this.catalogs.set(digest,{models:structuredClone(models),until:this.now()+this.catalogTTL});
+          if(this.catalogs.size>8)this.catalogs.delete(this.catalogs.keys().next().value);
           return models;
-        })).finally(()=>{if(this.catalogRequests.get(digest)===operation)this.catalogRequests.delete(digest);});
+        }).catch(error=>{
+          const failure=describeCatalogFailure(error);
+          if(failure.code==='CURSOR_AUTH_FAILED')this.catalogs.delete(digest);
+          throw failure;
+        }).finally(()=>{this.catalogRequests.delete(digest);});
         this.catalogRequests.set(digest,operation);
       }
-      return structuredClone(await bounded(()=>operation,{signal,timeoutMs:this.timeoutMs}));
-    } catch(error) {throw describeCatalogFailure(error);}
+      return structuredClone(await bounded(()=>operation,{signal,timeoutMs:null}));
+    } catch(error) {
+      const failure=describeCatalogFailure(error);
+      if(!refresh&&!this.closed&&!signal?.aborted && this.catalogs.has(digest) &&
+        ['TIMEOUT','CURSOR_NETWORK_TIMEOUT','CURSOR_CONNECTION_RESET','CURSOR_CONNECTION_UNAVAILABLE','CURSOR_RATE_LIMITED','CURSOR_SERVICE_FAILED'].includes(failure.code)) {
+        return structuredClone(this.catalogs.get(digest).models);
+      }
+      throw failure;
+    }
   }
   retire(session) {this.sessions.delete(session);}
   expire(token) {this.continuations.delete(token);}
+  submittedRequest(token,request,session) {
+    const entry={identity:bridgeIdentity(request),history:historyIdentity(stableHistory(request.messages)),
+      until:this.now()+this.timeoutMs};
+    for (const [key,value] of this.submitted) if (value.failure && value.until<=this.now()) this.submitted.delete(key);
+    this.submitted.set(token,entry);
+    const failed=[...this.submitted].filter(([,value])=>value.failure);
+    for(const [key] of failed.slice(0,Math.max(0,failed.length-128)))this.submitted.delete(key);
+    session.submission={token,entry};
+  }
   start(request,restore) {
+    this.check(request.apiKey,request.signal);
     const session=new RuntimeSession(this,request,restore);
+    session.bindSignal(request.signal);
     this.sessions.add(session);
     session.launch();
     return session;
   }
   async continue(request) {
+    this.check(request.apiKey,request.signal);
     const session=this.continuations.get(request.continuation);
-    if (!session) throw new ProviderError('CONTINUATION_UNAVAILABLE','Native continuation state was lost or expired');
+    if (!session) {
+      const previous=this.submitted.get(request.continuation);
+      if (previous && (!previous.failure || previous.until>this.now())) {
+        if (previous.identity!==bridgeIdentity(request) || previous.history!==historyIdentity(stableHistory(request.messages))) {
+          throw new ProviderError('CONTINUATION_IDENTITY_MISMATCH','Submitted continuation does not match this request');
+        }
+        throw previous.failure ?? new ProviderError('CONTINUATION_BUSY','Tool results have already been submitted; the continuation is still running');
+      }
+      throw new ProviderError('CONTINUATION_UNAVAILABLE','Native continuation state was lost or expired');
+    }
     if (session.identity!==bridgeIdentity(request)) throw new ProviderError('CONTINUATION_IDENTITY_MISMATCH','Continuation configuration changed');
     if (session.busy) throw new ProviderError('CONTINUATION_BUSY','Continuation already in use');
     const history=stableHistory(request.messages);
@@ -84,41 +123,51 @@ export class CursorTransport {
       clearTimeout(session.recoveryTimer);
       session.controller.abort();
       await session.done;await session.dispose();
+      this.check(request.apiKey,request.signal);
       const original=typeof request.prompt==='function'?request.prompt():request.prompt;
       const text=(typeof original==='string'?original:original.text)+
         '\nRecovery task: Tool results are authoritative. Explain completed results and remaining work. Do not execute or request any tools or repeat completed commands.';
       this.onPath(request.sessionId,'按已保存的工具结果重建');
-      return this.start({...request,tools:[],prompt:typeof original==='string'?text:{...original,text}});
+      const recovered=this.start({...request,tools:[],prompt:typeof original==='string'?text:{...original,text}});
+      this.submittedRequest(request.continuation,request,recovered);
+      return recovered;
     }
     const ids=session.pendingCalls.map(call=>call.id);
     session.bridge.results(request.messages,ids);
+    session.bindSignal(request.signal);
     clearTimeout(session.recoveryTimer);
     session.recoveryTimer=undefined;
-    session.detach?.();
     this.expire(request.continuation);
     session.token=undefined;
+    this.submittedRequest(request.continuation,request,session);
     session.bridge.resume(request.messages,ids);
+    session.activity();
     return session;
   }
   async acquire(request) {
+    this.check(request.apiKey,request.signal);
     if (request.continuation) return this.continue(request);
     const history=stableHistory(request.messages);
     const snapshot=latestRuntimeContext(request.messages).find(m=>m.source.kind==='runtime-context');
     const workspace=snapshot?.source.sections?.find(s=>s.name==='working-directory:current')?.text;
     const cached=!request.purpose&&this.idle.get(request.sessionId);
+    let reason='未找到可用检查点',saved;
     if (cached) {
       this.idle.delete(request.sessionId);clearTimeout(cached.idleTimer);
       const suffix=history.slice(cached.committedLength);
       if (cached.workspace===workspace && cached.identity===bridgeIdentity(request) &&
           cached.committed===historyIdentity(history.slice(0,cached.committedLength)) &&
           suffix.length && suffix.every(m=>m.role==='user') &&
-          !request.messages.some(m=>m.content.some(p=>p.type==='image'))) {
-        await cached.activate(request,suffix);
+          !suffix.some(m=>m.content.some(p=>p.type==='image'))) {
+        try {await cached.activate(request,suffix);}
+        catch(error){await cached.dispose();throw error;}
         return cached;
       }
+      reason=cached.workspace!==workspace?'工作区已变化':cached.identity!==bridgeIdentity(request)?'账号、模型、系统提示或工具配置已变化':
+        cached.committed!==historyIdentity(history.slice(0,cached.committedLength))?'历史已压缩、裁剪或修改':
+        suffix.some(m=>m.content.some(p=>p.type==='image'))?'新增消息含图片':'历史与会话追加条件不匹配';
       await cached.dispose();
     }
-    let reason='未找到可用检查点',saved;
     if (this.checkpointRoot && request.sessionId && !request.purpose) {
       try {
         saved=await claim(this.checkpointRoot,request.sessionId,data=>{
@@ -133,7 +182,11 @@ export class CursorTransport {
         },message=>{reason=message;});
       } catch {reason='无法读取检查点';}
     }
-    return this.start(request,{saved,workspace,reason});
+    try {return this.start(request,{saved,workspace,reason});}
+    catch(error) {
+      if(saved)await publish(saved.directory,saved.metadata).catch(()=>this.onCleanupDeferred('CHECKPOINT_RELEASE'));
+      throw error;
+    }
   }
   async cache(session,messages,content) {
     const committed=[...stableHistory(messages),{role:'assistant',content}];
@@ -158,13 +211,12 @@ export class CursorTransport {
     if (request.system!==undefined&&typeof request.system!=='string') throw new ProviderError('INVALID_SYSTEM_PROMPT','System prompt must be a string');
     const session=await this.acquire(request);
     session.busy=true;
-    const cancel=()=>session.controller.abort();
-    request.signal?.addEventListener('abort',cancel,{once:true});
     const content=[];
     let handedOff=false,done=false;
     try {
       for (;;) {
-        const event=await bounded(()=>session.take(),{signal:session.controller.signal,timeoutMs:this.timeoutMs});
+        if(request.signal?.aborted)session.controller.abort();
+        const event=await bounded(()=>session.take(),{signal:session.controller.signal,timeoutMs:null});
         if (event.type==='failure') throw event.error;
         if (event.type==='done') {done=session.completed;break;}
         if (['text','reasoning'].includes(event.type)&&event.text) {
@@ -188,13 +240,24 @@ export class CursorTransport {
         break;
       }
     } catch(error) {
-      if (session.timedOut) throw new ProviderError('TIMEOUT','Cursor call timed out');
-      throw error;
+      let failure=session.timedOut?new ProviderError('TIMEOUT','Cursor call timed out'):error;
+      if (session.submission) {
+        const code=failure instanceof ProviderError?failure.code:'CURSOR_SDK_ERROR';
+        if (code!=='ABORTED') failure=new ProviderError(code==='TIMEOUT'?'CONTINUATION_TIMEOUT':'CONTINUATION_FAILED',
+          code==='INVALID_ARGUMENTS'?'工具参数连续两次纠正后仍无效（INVALID_ARGUMENTS）。已完成工具未重复执行，可发送新消息继续。':
+          'Cursor continuation failed ('+code+'); tool results were already submitted. Continue from saved history; completed tools were not replayed.');
+        session.submission.entry.failure=failure;
+        session.submission.entry.until=this.now()+Math.max(this.timeoutMs,60000);
+      }
+      throw failure;
     } finally {
       session.busy=false;
-      if (handedOff) session.detach=()=>request.signal?.removeEventListener('abort',cancel);
-      else {
-        request.signal?.removeEventListener('abort',cancel);
+      if (session.submission) {
+        if (!session.submission.entry.failure) this.submitted.delete(session.submission.token);
+        session.submission=undefined;
+      }
+      if (!handedOff) {
+        session.detach?.();
         const reusable=done&&!session.historyPruned&&!this.closed&&request.sessionId&&!request.purpose&&
           content.length&&!session.controller.signal.aborted;
         if (reusable) await this.cache(session,request.messages,content);
@@ -207,6 +270,8 @@ export class CursorTransport {
   }
   async close() {
     this.closed=true;
+    this.catalogController.abort();
+    this.submitted.clear();
     this.catalogs.clear();this.idle.clear();
     this.catalogRequests.clear();
     const sessions=Array.from(this.sessions);

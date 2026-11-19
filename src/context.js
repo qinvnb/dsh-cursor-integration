@@ -72,6 +72,7 @@ export function createCompactionStatus(z) {
         const error=raw ? /temperature|maxTokens|stop controls/.test(raw)?'插件拒绝了压缩参数':
           /429|rate.?limit/i.test(raw)?'Cursor 限流':
           /timeout|timed out/i.test(raw)?'请求超时':
+          /cancel|abort/i.test(raw)?'已取消压缩':
           /useful summary|shrink|above threshold/i.test(raw)?'摘要未达到压缩要求':'压缩请求失败，请查看会话错误' : null;
         return {...state,status:error?'failed':'summarized',ended:time,error};
       }

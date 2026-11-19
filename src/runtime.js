@@ -7,6 +7,7 @@ import {newDirectory,publish,finishTurn,beginTurn,releaseCompleted,removeDirecto
 import {sdkOutputReader} from './tool-output.js';
 import {isRemoteContext,buildCursorPrompt,latestRuntimeContext} from './request-context.js';
 import {sdkCreateDiagnostic,describeNetworkFailure} from './network.js';
+import {normalizeSdkUsage} from './usage/normalize.js';
 
 export class RuntimeSession {
   constructor(transport,request,{saved,workspace,reason}={}) {
@@ -25,16 +26,14 @@ export class RuntimeSession {
     this.completed=false;
     this.ended=false;
     this.controller.signal.addEventListener('abort',()=>this.bridge.close(),{once:true});
-    this.lifetime=setTimeout(()=>{
-      this.timedOut=true;
-      this.controller.abort();
-    },transport.timeoutMs);
     this.done=Promise.resolve();
   }
   path(text) {
     if (!this.request.purpose) this.transport.onPath(this.sessionId,text);
+    this.emit({type:'path',label:text});
   }
   emit(event) {
+    if (event.type==='tool-call') this.activity();
     this.queue.push(event);
     this.wake?.();
     this.wake=undefined;
@@ -44,6 +43,28 @@ export class RuntimeSession {
     return this.queue.shift();
   }
   options() {return {signal:this.controller.signal,timeoutMs:this.transport.timeoutMs};}
+  bindSignal(signal) {
+    this.detach?.();
+    if(!signal){this.detach=undefined;return;}
+    const cancel=()=>this.controller.abort();
+    signal.addEventListener('abort',cancel,{once:true});
+    this.detach=()=>signal.removeEventListener('abort',cancel);
+    if(signal.aborted)cancel();
+  }
+  reportUsage(sample) {
+    try {this.emit({type:'usage',...summarizeUsage([normalizeSdkUsage(sample)])});}
+    catch {this.emit({type:'usage-unavailable'});}
+  }
+  activity() {
+    clearTimeout(this.watchdog);
+    this.watchdog=undefined;
+    // DSH owns tool execution and its cancellation. Waiting for a host tool is not SDK inactivity.
+    if (this.closed || this.controller.signal.aborted || this.bridge.pending.size) return;
+    this.watchdog=setTimeout(()=>{
+      this.timedOut=true;
+      this.controller.abort();
+    },this.transport.timeoutMs);
+  }
   async allocate() {
     if (this.transport.checkpointRoot && this.sessionId && !this.request.purpose) {
       try {
@@ -63,7 +84,8 @@ export class RuntimeSession {
       tools:this.bridge.tools.length?['mcp']:[],mcpServers:{},
       local:{
         cwd:this.directory,settingSources:[],customTools:this.bridge.customTools,
-        enableAgentRetries:this.transport.enableAgentRetries,
+        enableAgentRetries:this.transport.networkRoute==='proxy' &&
+          (r.purpose==='compaction'||this.transport.enableAgentRetries),
         store:new sdk.JsonlLocalAgentStore(join(this.directory,'state')),
       },
     };
@@ -148,6 +170,8 @@ export class RuntimeSession {
       await beginTurn(this.directory,this.marker);
       this.marker=undefined;
     }
+    this.transport.check(request.apiKey,request.signal);
+    this.bindSignal(request.signal);
     this.checkpoint=undefined;
     this.request=request;
     this.queue=[];
@@ -160,40 +184,49 @@ export class RuntimeSession {
     this.ended=false;
     this.completed=false;
     this.bridge.beginRun();
-    this.done=this.transport.networkScope(()=>this.produce()).finally(()=>{
-      clearTimeout(this.lifetime);
+    const diagnostics=this.transport.requestDiagnostics;
+    const produce=turn=>this.transport.networkScope(()=>this.produce(turn));
+    this.done=(diagnostics ? diagnostics.run(this.sessionId,this.transport.networkRoute,produce) : produce()).finally(()=>{
+      clearTimeout(this.watchdog);
       this.detach?.();
     });
     // The host can be running a long tool before it awaits this producer again.
     void this.done.catch(()=>{});
   }
-  async produce() {
+  async produce(diagnostics) {
     const start=performance.now(),counts={},timings={};
-    let run,reported=false;
+    let run,reported=false,phase='connect',result;
     const timing=(stage,since)=>{
       const ms=Math.round(performance.now()-since);
       timings[stage]=ms;this.emit({type:'timing',stage,ms});
     };
-    const timer=setTimeout(()=>{this.timedOut=true;this.controller.abort();},this.transport.timeoutMs);
+    this.activity();
     try {
       await this.connect(timing);
       this.bridge.rememberRuntimeContext(this.request.messages);
       const prompt=this.prompt ?? (typeof this.request.prompt==='function'?this.request.prompt():this.request.prompt);
       let stage=performance.now();
+      phase='send';
       run=await bounded(()=>this.agent.send(prompt),{
         ...this.options(),lateCleanup:late=>late.supports('cancel')?late.cancel():undefined,
       });
       timing('sdkSendMs',stage);
+      phase='stream';
+      this.activity();
       const stream=run.stream();
       let first=false,content=false;
       for (;;) {
-        const next=await bounded(()=>stream.next(),this.options());
+        const next=await bounded(()=>stream.next(),{signal:this.controller.signal,timeoutMs:null});
+        this.activity();
         if (next.done) break;
         const event=next.value;
         if (!first) {timing('firstSDKEventMs',start);first=true;}
         const visible=event.type==='thinking'&&event.text ||
           event.type==='assistant'&&event.message.content.some(part=>part.type==='text'&&part.text);
-        if (!content && visible) {content=true;timing('firstContentMs',start);}
+        if (!content && visible) {
+          content=true;timing('firstContentMs',start);
+          diagnostics?.record('first_content', { ms: timings.firstContentMs });
+        }
         const kind=['assistant','thinking','usage','tool_call','system','status','user'].includes(event.type)?event.type:'other';
         counts[kind]=(counts[kind]??0)+1;
         const names=event.type==='tool_call'?[event.name]:event.type==='assistant'?
@@ -210,15 +243,16 @@ export class RuntimeSession {
         }
         if (event.type==='usage') {
           reported=true;
-          this.emit({type:'usage',...summarizeUsage([{...event.usage,singleTurn:true}])});
+          this.reportUsage(event.usage);
         }
       }
-      const result=await bounded(()=>run.wait(),this.options());
+      phase='wait';
+      result=await bounded(()=>run.wait(),this.options());
       this.emit({type:'diagnostic',summary:{
         status:['finished','cancelled','error'].includes(result.status)?result.status:'unknown',
         eventCounts:counts,timings:{...timings,runWallMs:Math.round(performance.now()-start)},
       }});
-      if (!reported && result.usage) this.emit({type:'usage',billing:result.usage});
+      if (!reported && result.usage) this.reportUsage(result.usage);
       if (result.status!=='finished') {
         const detail=typeof result.error==='string'?result.error:JSON.stringify(result.error??'');
         if (/system.?prompt/i.test(detail)&&/invalid.?argument|permission|not.allowed|not.enabled|access.denied/i.test(detail)) {
@@ -228,15 +262,18 @@ export class RuntimeSession {
           new ProviderError(result.status==='cancelled'?'ABORTED':'SDK_RUN_FAILED','SDK run did not complete');
       }
       this.completed=true;
+      diagnostics?.result('finished',phase,run,result);
     } catch(error) {
       this.emit({type:'diagnostic',summary:{
         status:this.controller.signal.aborted?'cancelled':'error',eventCounts:counts,
         timings:{...timings,runWallMs:Math.round(performance.now()-start)},
       }});
-      this.emit({type:'failure',error:this.timedOut?new ProviderError('TIMEOUT','Cursor call timed out'):
-        describeNetworkFailure(error,'Cursor model request')??error});
+      const failure=this.timedOut?new ProviderError('TIMEOUT','Cursor call timed out'):
+        describeNetworkFailure(error,'Cursor model request')??error;
+      diagnostics?.result(this.timedOut?'timeout':this.controller.signal.aborted?'cancelled':'error',phase,run,result,failure,error);
+      this.emit({type:'failure',error:failure});
     } finally {
-      clearTimeout(timer);
+      clearTimeout(this.watchdog);
       this.ended=true;
       this.detach?.();
       clearTimeout(this.recoveryTimer);
@@ -269,7 +306,7 @@ export class RuntimeSession {
   async dispose() {
     if (this.disposing) return this.disposing;
     this.disposing=(async()=>{
-      clearTimeout(this.lifetime);clearTimeout(this.idleTimer);clearTimeout(this.recoveryTimer);
+      clearTimeout(this.watchdog);clearTimeout(this.idleTimer);clearTimeout(this.recoveryTimer);
       this.bridge.close();
       try {
         if (this.agent) await bounded(()=>this.agent[Symbol.asyncDispose](),{timeoutMs:5000});

@@ -1,6 +1,7 @@
 import {TypertRemoteService,Remote} from '@deepseek-ai/dsh-typert-protocol';
 import {createLocalReader} from './local.js';
-export function mountUsage(ctx,accounts,pool,checks,paths) {
+import {compactionSettings} from '../compaction-settings.js';
+export function mountUsage(ctx,accounts,pool,checks,paths,modelCatalog) {
   const local = createLocalReader(ctx.sessionQuery);
   function displayState(){
     const {accounts:rows}=pool.view();
@@ -8,6 +9,9 @@ export function mountUsage(ctx,accounts,pool,checks,paths) {
   }
   class UsageService extends TypertRemoteService {
     constructor() {super(ctx, 'cursorIntegrationUsage'); for (const initialize of initializers) initialize.call(this);}
+    async getCompactionSettings(){return compactionSettings(ctx.get('configEditor')).get();}
+    async setCompactionThreshold(ratio){return compactionSettings(ctx.get('configEditor')).set(ratio);}
+    async getModelCatalog({ref,draftKey}){return modelCatalog(ref,draftKey);}
     async getDisplayState(sessionId){return {...displayState(),sessionId,path:paths?.get(sessionId)??null,session:pool.session(sessionId)??null};}
     async getSnapshot() {
       const {accounts:rows,totals:overall}=pool.view();
@@ -29,7 +33,7 @@ export function mountUsage(ctx,accounts,pool,checks,paths) {
     }
   }
   const initializers = [];
-  for (const name of ['getDisplayState','getSnapshot','getAllSnapshots','selectKey','getRouteChecks','startRouteChecks','stopRouteChecks']) Remote(UsageService.prototype[name], {kind:'method', name, static:false, private:false,
+  for (const name of ['getCompactionSettings','setCompactionThreshold','getModelCatalog','getDisplayState','getSnapshot','getAllSnapshots','selectKey','getRouteChecks','startRouteChecks','stopRouteChecks']) Remote(UsageService.prototype[name], {kind:'method', name, static:false, private:false,
     addInitializer(fn) {initializers.push(fn);}});
   new UsageService();
 }

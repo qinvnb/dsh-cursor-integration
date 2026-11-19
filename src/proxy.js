@@ -6,22 +6,18 @@ import { syncBuiltinESMExports } from 'node:module';
 import { duplexPair } from 'node:stream';
 import tls from 'node:tls';
 import { getGlobalDispatcher, ProxyAgent } from 'undici';
-import { retryBootstrapRequest } from './network.js';
+import { isCursorHost, retryBootstrapRequest } from './network.js';
+import { currentRequestDiagnostics } from './request-diagnostics.js';
 
 const scope = new AsyncLocalStorage();
-const domains = ['cursor.com', 'cursor.sh', 'cursorapi.com'];
 let users = 0;
 let restore;
-
-function isCursorHost(hostname) {
-  const host = hostname?.toLowerCase().replace(/\.$/, '');
-  return domains.some(domain => host === domain || host?.endsWith('.' + domain));
-}
 
 const cursorProxy = hostname => isCursorHost(hostname) ? scope.getStore() : undefined;
 
 function tunnel(proxy, target, options) {
   const [socket, bridge] = duplexPair();
+  const diagnostics = currentRequestDiagnostics();
   const authority = target.hostname + ':' + (target.port || '443');
   const request = http.request(proxy.url, {
     agent: false,
@@ -30,13 +26,17 @@ function tunnel(proxy, target, options) {
     headers: { Host: authority },
   });
   bridge.on('error', () => request.destroy());
-  request.on('error', error => socket.destroy(error));
+  request.on('error', error => {
+    if (!socket.destroyed) diagnostics?.proxyFailure('connect', error);
+    socket.destroy(error);
+  });
   socket.on('close', () => {
     request.destroy();
     bridge.destroy();
   });
   request.on('connect', (response, upstream, head) => {
     if (response.statusCode !== 200) {
+      diagnostics?.proxyFailure('connect_response', undefined, response.statusCode);
       upstream.destroy();
       socket.destroy(new Error('Cursor proxy CONNECT returned HTTP ' + response.statusCode));
       return;

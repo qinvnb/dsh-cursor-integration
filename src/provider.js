@@ -30,18 +30,22 @@ export function resolveVariant(identifier, catalog) {
 
 export async function bounded(operation, options = {}) {
   const {signal, timeoutMs = 30000, lateCleanup = async () => {}} = options;
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 2147483647) {
+  // null delegates the deadline to the caller's activity watchdog; cancellation remains active.
+  if (timeoutMs !== null && (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 2147483647)) {
     throw new ProviderError('CONFIG', 'Invalid operation timeout');
   }
   if (signal?.aborted) throw new ProviderError('ABORTED', 'Request cancelled');
   let expired = false, cancel, timeout;
-  const work = Promise.resolve().then(operation);
+  const work = Promise.resolve().then(() => {
+    if (signal?.aborted) throw new ProviderError('ABORTED', 'Request cancelled');
+    return operation();
+  });
   const interrupt = new Promise((_, reject) => {
     cancel = () => {
       expired = true;
       reject(new ProviderError('ABORTED', 'Request cancelled'));
     };
-    timeout = setTimeout(() => {
+    if (timeoutMs !== null) timeout = setTimeout(() => {
       expired = true;
       reject(new ProviderError('TIMEOUT', 'Operation timed out'));
     },timeoutMs);

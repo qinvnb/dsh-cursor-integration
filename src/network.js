@@ -5,6 +5,12 @@ const timeoutCodes = new Set(['UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOU
 const resetCodes = new Set(['ECONNRESET', 'UND_ERR_SOCKET', 'EPIPE']);
 const unavailableCodes = new Set(['ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EAI_AGAIN']);
 const transientHttp = new Set([408, 500, 502, 503, 504]);
+const cursorDomains = ['cursor.com', 'cursor.sh', 'cursorapi.com'];
+
+export function isCursorHost(hostname) {
+  const host = hostname?.toLowerCase().replace(/\.$/, '');
+  return cursorDomains.some(domain => host === domain || host?.endsWith('.' + domain));
+}
 
 export function sdkCreateDiagnostic(error) {
   const facts = new Set();

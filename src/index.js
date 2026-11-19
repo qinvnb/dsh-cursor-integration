@@ -5,9 +5,11 @@ import {LlmAdapter,LlmError,offloadedImageText} from '@deepseek-ai/dsh-llm';
 import {estimateToolsTokens} from '@deepseek-ai/dsh-token-meter/estimate';
 import {createToolValidator} from './validation.js';
 import {CursorTransport} from './transport.js';
-import {defineAdapter,contextChoices} from './adapter.js';
+import {catalogMetadata,defineAdapter,contextChoices} from './adapter.js';
 import {ProviderError} from './provider.js';
 import {createCursorProxy} from './proxy.js';
+import {createRequestDiagnostics} from './request-diagnostics.js';
+import {dirname} from 'node:path';
 import {createPool} from './pool.js';
 import {createAccountsReader} from './usage/accounts.js';
 import {createAccountReader} from './usage/account.js';
@@ -30,6 +32,8 @@ const accountConfig=z.object({
 });
 export const Config=z.object({
   proxyUrl:z.string(),
+  requestDiagnostics:z.boolean().default(true),
+  proxyAgentRetries:z.boolean().default(false),
   providers:z.dict(z.object({
     apiKeyEnv:z.string().role('credential-ref'),accounts:z.array(accountConfig),
     usageRefreshMinutes:z.number().step(1).min(1).max(1440),
@@ -48,8 +52,12 @@ export function apply(ctx,config) {
   };
   const proxy=config.proxyUrl?createCursorProxy(config.proxyUrl):undefined;
   const onCleanupDeferred=code=>ctx.logger.warn('Checkpoint cleanup deferred ('+code+')');
-  const transport=new CursorTransport({networkScope:proxy?.run,checkpointRoot,onPath,onCleanupDeferred});
-  const direct=new CursorTransport({checkpointRoot,onPath,onCleanupDeferred});
+  const requestDiagnostics=config.requestDiagnostics!==false?createRequestDiagnostics({
+    directory:dirname(checkpointRoot),onWriteFailure:()=>ctx.logger.warn('Cursor request diagnostics could not be written'),
+  }):undefined;
+  const options={checkpointRoot,onPath,onCleanupDeferred,requestDiagnostics};
+  const transport=new CursorTransport({...options,networkScope:proxy?.run,enableAgentRetries:config.proxyAgentRetries});
+  const direct=new CursorTransport(options);
   const resolve=async ref=>(await ctx.credentials.resolve(ref))?.value;
   const credential=async()=>{
     const ref=profile().apiKeyEnv;
@@ -97,14 +105,20 @@ export function apply(ctx,config) {
   ctx.effect(()=>async()=>{
     clearInterval(timer);
     checks.stop();pool.close();accounts.close();
-    try {await Promise.all([transport.close(),direct.close()]);} finally {await proxy?.close();}
+    try {await Promise.all([transport.close(),direct.close()]);}
+    finally {await Promise.all([proxy?.close(),requestDiagnostics?.close()]);}
   });
   ctx.inject(['tokenMeter','sessionProjections'],child=>{
     child.effect(()=>installCursorContextMeter(child.tokenMeter,estimateToolsTokens));
     child.sessionProjections.register(createCursorContextRoute(jsonSchema));
     child.sessionProjections.register(createCompactionStatus(jsonSchema));
   });
-  ctx.inject(['sessionQuery'],child=>mountUsage(child,accounts,pool,checks,paths));
+  const getModelCatalog=async (ref,draftKey)=>{
+    const apiKey=draftKey || (accounts.list().some(row=>row.id===ref) && await resolve(ref));
+    if(!apiKey)throw new ProviderError('MISSING_CREDENTIAL','当前账号尚未保存密钥。');
+    return (await transport.catalog(apiKey,undefined,{refresh:true})).map(catalogMetadata);
+  };
+  ctx.inject(['sessionQuery'],child=>mountUsage(child,accounts,pool,checks,paths,getModelCatalog));
   ctx.inject(['settings'],child=>child.effect(()=>child.settings.configure({auto:false},ctx.fiber)));
   const Adapter=defineAdapter({
     LlmAdapter,LlmError,transport,directTransport:direct,profile,credential,

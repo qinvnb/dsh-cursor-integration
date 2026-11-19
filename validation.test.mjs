@@ -75,3 +75,49 @@ test('adapter persists only the safe validation diagnostics for support',async()
  const record=events.find(e=>e.type==='finish').replayState.response.attempts[0];assert.equal(record.validationErrors[0].tool,'write_file');
  assert.equal(record.validationErrors[0].issues[0].field,'/path');
 });
+
+test('separate corrected tools each receive a fresh budget after persisted host results',async()=>{
+ const tools=[
+  {name:'ops_grep',parameters:{type:'object',required:['glob'],properties:{glob:{type:'array',items:{type:'string'}}}}},
+  {name:'ops_inspect_local_file',parameters:{type:'object',required:['path'],additionalProperties:false,properties:{path:{type:'string'}}}},
+  {name:'edit',parameters:{type:'object',required:['file_path'],properties:{file_path:{type:'string'}}}},
+ ];
+ const invalid=[{glob:'*.py'},{path:'file',extra:true},{}],valid=[{glob:['*.py']},{path:'file'},{file_path:'file'}];
+ let sends=0,results=0;
+ const sdk={JsonlLocalAgentStore:class{},Agent:{create:async options=>({
+  send:async()=>{sends++;return {async *stream(){
+   for(let i=0;i<tools.length;i++){
+    const execute=options.local.customTools[tools[i].name].execute;
+    assert.equal((await execute(invalid[i],{toolCallId:'bad-'+i})).isError,true);
+    assert.equal((await execute(valid[i],{toolCallId:'good-'+i})).content[0].text,'host result');results++;
+   }
+   yield {type:'assistant',message:{content:[{type:'text',text:'all corrected'}]}};
+  },wait:async()=>({status:'finished'})};},async [Symbol.asyncDispose](){},
+ })}};
+ const transport=new CursorTransport({loadSDK:async()=>sdk,timeoutMs:3000});
+ const base={apiKey:'fixture',model:{id:'m'},tools,validate:createToolValidator(Ajv),messages:[{role:'user',content:[{type:'text',text:'work'}]}],prompt:'work'};
+ try{
+  let request=base;const corrections=[];
+  for(let i=0;i<3;i++){
+   const events=[];for await(const e of transport.stream(request))events.push(e);
+   corrections.push(events.find(e=>e.type==='validation-error').correction);
+   const call=events.find(e=>e.type==='tool-call');assert.equal(call.name,tools[i].name);
+   request={...base,messages:[...request.messages,...history(call)],continuation:events.find(e=>e.type==='continuation').token};
+  }
+  const final=[];for await(const e of transport.stream(request))final.push(e);
+  assert.ok(final.some(e=>e.type==='text'&&e.text==='all corrected'));
+  assert.deepEqual(corrections,[1,1,1]);assert.equal(results,3);assert.equal(sends,1);
+ }finally{await transport.close();}
+});
+
+test('unmatched results and an already exhausted parallel batch cannot reset corrections',async()=>{
+ const {bridge,events,execute}=setup();
+ await execute({});await execute({});
+ const pending=execute({path:'x',text:'x'});const call=events.find(e=>e.type==='tool-call');
+ assert.throws(()=>bridge.resume([],[call.id]),{code:'TOOL_RESULT_MISMATCH'});
+ assert.equal(bridge.validationFailures,2);
+ await assert.rejects(execute({}),{code:'INVALID_ARGUMENTS'});
+ bridge.resume(history(call),[call.id]);await pending;
+ await assert.rejects(execute({path:'x',text:'x'}),{code:'INVALID_ARGUMENTS'});
+ bridge.close();
+});

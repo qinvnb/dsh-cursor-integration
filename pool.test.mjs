@@ -17,6 +17,16 @@ test('lowest remaining-plan usage outranks low demand, tie broken by demand',()=
 test('exhausted plans keep under-cap demand account and switch at equality',()=>{assert.equal(rank([row('a',100,30),row('b',100,5)],'a',31)[0].id,'a');assert.equal(rank([row('a',100,30),row('b',100,5)],'a',30)[0].id,'b');});
 test('eligible pool, boundary transition, all-over warning and pinned continuation',async()=>{let rows=[row('unsupported',1,0),row('a',3,90),row('b',99,5)];const pool=createPool({accounts:{all:async()=>({accounts:rows}),list:()=>rows},resolve:async ref=>ref,catalog:async key=>[{id:key==='unsupported'?'other':'claude'}],now:()=>new Date(2026,10,11)});await pool.refresh();assert.equal((await pool.route('claude')).ref,'a');rows=[row('a',100,50),row('b',100,5)];await pool.refresh();assert.equal((await pool.route('claude')).ref,'b');rows=[row('a',100,75),row('b',100,80)];await pool.refresh();assert.equal((await pool.route('claude')).ref,'a');assert.ok(pool.info().warning);assert.equal((await pool.route('claude',undefined,'b')).ref,'b');});
 test('weighted and percent-only aggregation report coverage',()=>{const items=totals([row('a',10,50,10),row('b',30,10,90)]);assert.equal(items[1].percent,20);assert.equal(items[2].percent,14);assert.equal(items[0].count,0);});
+
+test('pool money sums real USD only and reports incomplete coverage and unknown limits',()=>{
+ const rows=[row('a',10,50,10),row('b',30,10,90)];
+ const result=totals(rows);
+ assert.deepEqual(result[2].money,{used:14,limit:100,remaining:86,count:2,total:2});
+ assert.equal(result[1].money,null);
+ rows.push({id:'failed',account:{status:'error',data:{meters:[{key:'onDemand',unit:'usd',used:1000,limit:2000,percent:50}]}}});
+ rows.push({id:'no-limit',account:{status:'ready',data:{meters:[{key:'onDemand',unit:'usd',used:3,limit:null,remaining:null,percent:null}]}}});
+ assert.deepEqual(totals(rows)[2].money,{used:17,limit:null,remaining:null,count:3,total:4});
+});
 test('a suspended refresh never blocks cold or warm routing, previews, or dock reads',async()=>{
  let finish,reads=0,lookups=0;
  const rows=[{...row('a',60,2),active:true},row('b',10,3)];

@@ -1,10 +1,23 @@
 import {z} from 'zod';
 import {createTypertRemoteInfo} from '@deepseek-ai/dsh-typert-protocol/remote-info';
+const catalogRequest={mode:'strict',typeSymbol:'dsh-cursor-integration#ModelCatalogRequest',
+  create:()=>z.object({ref:z.string(),draftKey:z.string().optional()}),
+  jsonSchema:{type:'object',properties:{ref:{type:'string'},draftKey:{type:'string'}},required:['ref']}};
 export const remoteInfo = createTypertRemoteInfo({package: 'dsh-cursor-integration', methods: {
-  ...Object.fromEntries(['getRouteChecks','startRouteChecks','stopRouteChecks'].map(name=>['cursorIntegrationUsage/'+name,{
+  ...Object.fromEntries(['getCompactionSettings','getRouteChecks','startRouteChecks','stopRouteChecks'].map(name=>['cursorIntegrationUsage/'+name,{
     service:'cursorIntegrationUsage',description:name,invocation:{kind:'direct'},parameters:[],
     result:{mode:'strict',typeSymbol:'dsh-cursor-integration#RouteChecks',create:()=>z.json(),description:'Model connectivity check status',jsonSchema:{}}
   }])),
+  'cursorIntegrationUsage/setCompactionThreshold': {
+    service:'cursorIntegrationUsage',description:'Update the native DSH compaction threshold through ConfigEditor.',invocation:{kind:'direct'},
+    parameters:[{name:'ratio',source:'json',codec:{mode:'strict',typeSymbol:'number',create:()=>z.number(),jsonSchema:{type:'number'}},strictCodec:{mode:'strict',typeSymbol:'number',create:()=>z.number(),jsonSchema:{type:'number'}}}],
+    result:{mode:'strict',typeSymbol:'dsh-cursor-integration#CompactionSettings',create:()=>z.json(),jsonSchema:{}},
+  },
+  'cursorIntegrationUsage/getModelCatalog': {
+    service:'cursorIntegrationUsage',description:'Read the Cursor model capabilities for the selected credential.',invocation:{kind:'direct'},
+    parameters:[{name:'request',source:'json',codec:catalogRequest,strictCodec:catalogRequest}],
+    result:{mode:'strict',typeSymbol:'dsh-cursor-integration#ModelCatalog',create:()=>z.json(),jsonSchema:{}},
+  },
   'cursorIntegrationUsage/getDisplayState': {
     service:'cursorIntegrationUsage',description:'Read the cached account for this session.', invocation:{kind:'direct'},parameters:[{name:'sessionId',source:'json',codec:{mode:'strict',typeSymbol:'string',create:()=>z.string(),jsonSchema:{type:'string'}},strictCodec:{mode:'strict',typeSymbol:'string',create:()=>z.string(),jsonSchema:{type:'string'}}}],result:{mode:'strict',typeSymbol:'dsh-cursor-integration#DisplayState',create:()=>z.json(),jsonSchema:{}}
   },
