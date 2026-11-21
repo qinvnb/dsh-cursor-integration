@@ -3,7 +3,17 @@ import {createTypertRemoteInfo} from '@deepseek-ai/dsh-typert-protocol/remote-in
 const catalogRequest={mode:'strict',typeSymbol:'dsh-cursor-integration#ModelCatalogRequest',
   create:()=>z.object({ref:z.string(),draftKey:z.string().optional()}),
   jsonSchema:{type:'object',properties:{ref:{type:'string'},draftKey:{type:'string'}},required:['ref']}};
+const proxyPortCodec={mode:'strict',typeSymbol:'string',create:()=>z.string(),jsonSchema:{type:'string'}};
+const proxySettingsResult={mode:'strict',typeSymbol:'dsh-cursor-integration#ProxySettings',create:()=>z.json(),jsonSchema:{}};
 export const remoteInfo = createTypertRemoteInfo({package: 'dsh-cursor-integration', methods: {
+  'cursorIntegrationUsage/getProxySettings': {
+    service:'cursorIntegrationUsage',description:'Read the Cursor proxy port from the DSH profile.',invocation:{kind:'direct'},
+    parameters:[],result:proxySettingsResult,
+  },
+  'cursorIntegrationUsage/setProxyPort': {
+    service:'cursorIntegrationUsage',description:'Save the Cursor proxy port through ConfigEditor.',invocation:{kind:'direct'},
+    parameters:[{name:'port',source:'json',codec:proxyPortCodec,strictCodec:proxyPortCodec}],result:proxySettingsResult,
+  },
   ...Object.fromEntries(['getCompactionSettings','getRouteChecks','startRouteChecks','stopRouteChecks'].map(name=>['cursorIntegrationUsage/'+name,{
     service:'cursorIntegrationUsage',description:name,invocation:{kind:'direct'},parameters:[],
     result:{mode:'strict',typeSymbol:'dsh-cursor-integration#RouteChecks',create:()=>z.json(),description:'Model connectivity check status',jsonSchema:{}}

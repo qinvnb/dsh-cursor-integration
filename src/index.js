@@ -118,7 +118,8 @@ export function apply(ctx,config) {
     if(!apiKey)throw new ProviderError('MISSING_CREDENTIAL','当前账号尚未保存密钥。');
     return (await transport.catalog(apiKey,undefined,{refresh:true})).map(catalogMetadata);
   };
-  ctx.inject(['sessionQuery'],child=>mountUsage(child,accounts,pool,checks,paths,getModelCatalog));
+  const namespace=ctx.fiber.entry?.options.id??name;
+  ctx.inject(['sessionQuery'],child=>mountUsage(child,accounts,pool,checks,paths,getModelCatalog,namespace));
   ctx.inject(['settings'],child=>child.effect(()=>child.settings.configure({auto:false},ctx.fiber)));
   const Adapter=defineAdapter({
     LlmAdapter,LlmError,transport,directTransport:direct,profile,credential,
@@ -126,7 +127,6 @@ export function apply(ctx,config) {
     validate:createToolValidator(Ajv),attachments:()=>ctx.get('attachments'),offloadedImageText,
   });
   ctx.llm.registerAdapter(['cursor'],new Adapter());
-  const namespace=ctx.fiber.entry?.options.id??name;
   ctx.llm.registerModelDiscovery(namespace,async(request,signal)=>{
     if (request.provider&&request.provider!=='cursor') throw new LlmError('Only Cursor is available','INVALID_PROVIDER');
     if (request.baseURL) throw new LlmError('Cursor SDK uses its official endpoints','UNSUPPORTED_ENDPOINT');

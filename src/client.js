@@ -20037,7 +20037,23 @@ var catalogRequest = {
   create: () => external_exports.object({ ref: external_exports.string(), draftKey: external_exports.string().optional() }),
   jsonSchema: { type: "object", properties: { ref: { type: "string" }, draftKey: { type: "string" } }, required: ["ref"] }
 };
+var proxyPortCodec = { mode: "strict", typeSymbol: "string", create: () => external_exports.string(), jsonSchema: { type: "string" } };
+var proxySettingsResult = { mode: "strict", typeSymbol: "dsh-cursor-integration#ProxySettings", create: () => external_exports.json(), jsonSchema: {} };
 var remoteInfo = createTypertRemoteInfo({ package: "dsh-cursor-integration", methods: {
+  "cursorIntegrationUsage/getProxySettings": {
+    service: "cursorIntegrationUsage",
+    description: "Read the Cursor proxy port from the DSH profile.",
+    invocation: { kind: "direct" },
+    parameters: [],
+    result: proxySettingsResult
+  },
+  "cursorIntegrationUsage/setProxyPort": {
+    service: "cursorIntegrationUsage",
+    description: "Save the Cursor proxy port through ConfigEditor.",
+    invocation: { kind: "direct" },
+    parameters: [{ name: "port", source: "json", codec: proxyPortCodec, strictCodec: proxyPortCodec }],
+    result: proxySettingsResult
+  },
   ...Object.fromEntries(["getCompactionSettings", "getRouteChecks", "startRouteChecks", "stopRouteChecks"].map((name) => ["cursorIntegrationUsage/" + name, {
     service: "cursorIntegrationUsage",
     description: name,
@@ -20689,6 +20705,71 @@ function CompactionControl({ api }) {
     notice || snapshot?.error ? h3("p", { className: "ci-note", role: "status" }, notice || snapshot.error) : null
   );
 }
+function ProxyPortControl({ api }) {
+  const [snapshot, setSnapshot] = import_react4.default.useState(null);
+  const [draft, setDraft] = import_react4.default.useState(null);
+  const [notice, setNotice] = import_react4.default.useState("");
+  const [busy, setBusy] = import_react4.default.useState(false);
+  import_react4.default.useEffect(() => {
+    let alive = true;
+    api.getProxySettings().then((reply) => {
+      if (alive) setSnapshot(reply.ok ? reply.value : { available: false, error: "\u8BFB\u53D6 DSH \u4EE3\u7406\u914D\u7F6E\u5931\u8D25\u3002" });
+    }).catch(() => {
+      if (alive) setSnapshot({ available: false, error: "\u65E0\u6CD5\u8FDE\u63A5 DSH \u914D\u7F6E\u670D\u52A1\u3002" });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [api]);
+  const disabled = busy || !snapshot?.available;
+  const canSave = !disabled && draft !== null && draft.trim() !== snapshot.port;
+  async function save() {
+    if (!canSave) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const reply = await api.setProxyPort(draft);
+      if (!reply.ok) throw Error();
+      setSnapshot(reply.value);
+      if (!reply.value.error) {
+        setDraft(null);
+        setNotice("\u4EE3\u7406\u7AEF\u53E3\u5DF2\u4FDD\u5B58\u3002");
+      }
+    } catch {
+      setNotice("\u4FDD\u5B58\u4EE3\u7406\u7AEF\u53E3\u5931\u8D25\uFF0C\u65E0\u6CD5\u8FDE\u63A5 DSH \u914D\u7F6E\u670D\u52A1\u3002");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return h3(
+    "div",
+    { className: "ci-section" },
+    h3("label", null, h3("span", null, "Cursor SDK \u4EE3\u7406\u7AEF\u53E3"), h3("input", {
+      inputMode: "numeric",
+      disabled,
+      placeholder: "7890",
+      value: draft ?? snapshot?.port ?? "",
+      onChange: (event) => {
+        setDraft(event.target.value);
+        setNotice("");
+      },
+      onKeyDown: (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void save();
+        }
+      }
+    })),
+    note("\u586B\u5199\u672C\u673A HTTP \u6216\u6DF7\u5408\u4EE3\u7406\u7AEF\u53E3\uFF0C\u7559\u7A7A\u76F4\u8FDE\u3002\u4FDD\u5B58\u540E DSH \u4F1A\u91CD\u65B0\u52A0\u8F7D Cursor \u96C6\u6210\u3002"),
+    h3("div", { className: "ci-inline" }, h3(
+      "button",
+      { type: "button", disabled: !canSave, onClick: save },
+      h3(Icon, { name: busy ? "refresh" : "check" }),
+      busy ? "\u4FDD\u5B58\u4E2D\u2026" : "\u4FDD\u5B58\u4EE3\u7406\u7AEF\u53E3"
+    )),
+    notice || snapshot?.error ? h3("p", { className: "ci-note", role: "status" }, notice || snapshot.error) : null
+  );
+}
 function mountSettings(ctx) {
   function Panel({ scope, view, compactionApi }) {
     const snapshot = import_react4.default.useSyncExternalStore((fn) => scope.subscribe(fn), () => scope.getSnapshot());
@@ -20698,7 +20779,6 @@ function mountSettings(ctx) {
     const [busy, setBusy] = import_react4.default.useState(false);
     const [catalog, setCatalog] = import_react4.default.useState([]);
     const [query, setQuery] = import_react4.default.useState("");
-    const [proxyUrl, setProxyUrl] = import_react4.default.useState(null);
     const [selected, setSelected] = import_react4.default.useState(null);
     const [accountMenuOpen, setAccountMenuOpen] = import_react4.default.useState(false);
     const accountButton = import_react4.default.useRef(null);
@@ -20758,15 +20838,6 @@ function mountSettings(ctx) {
           return;
         }
       }
-      if (proxyUrl?.trim()) {
-        try {
-          const parsed = new URL(proxyUrl);
-          if (parsed.protocol !== "http:") throw Error();
-        } catch {
-          setNotice("\u4EE3\u7406\u5730\u5740\u987B\u4E3A http:// \u5F00\u5934\u7684 HTTP \u6216\u6DF7\u5408\u4EE3\u7406\u5730\u5740\u3002");
-          return;
-        }
-      }
       setBusy(true);
       setNotice("");
       try {
@@ -20782,11 +20853,9 @@ function mountSettings(ctx) {
           accounts: config2.accounts.map((row) => ({ ...row, label: row.label.trim(), configured: row.apiKeyEnv === ref ? true : row.configured }))
         };
         const operations = [{ op: "set", path: ["providers", "cursor"], value: JSON.parse(JSON.stringify(next)) }];
-        if (proxyUrl !== null) operations.push({ op: "set", path: ["proxyUrl"], value: proxyUrl.trim() });
         const ok = await scope.mutate(operations, snapshot.revision);
         if (!ok) throw Error();
         setDraft(null);
-        setProxyUrl(null);
         setNotice("\u914D\u7F6E\u5DF2\u4FDD\u5B58\u3002");
       } catch {
         setNotice("\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u5237\u65B0\u914D\u7F6E\u540E\u91CD\u8BD5\u3002");
@@ -20868,19 +20937,15 @@ function mountSettings(ctx) {
         "section",
         { className: "ci-section" },
         heading2("network", "\u8FDE\u63A5\u4E0E\u5237\u65B0"),
-        h3(
-          "div",
-          { className: "ci-grid" },
-          field("Cursor SDK \u4EE3\u7406\u5730\u5740", { placeholder: "http://127.0.0.1:7890", value: proxyUrl ?? snapshot.value?.proxyUrl ?? "", onChange: (event) => setProxyUrl(event.target.value) }),
-          field("\u540E\u53F0\u7528\u91CF\u5237\u65B0\u95F4\u9694\uFF08\u5206\u949F\uFF09", {
-            type: "number",
-            min: 1,
-            max: 1440,
-            value: config2.usageRefreshMinutes ?? 5,
-            onChange: (event) => change({ usageRefreshMinutes: event.target.value })
-          })
-        ),
-        note("\u4EE3\u7406\u53EA\u4F5C\u7528\u4E8E Cursor SDK \u548C\u76F8\u5173\u67E5\u8BE2\uFF1B\u7559\u7A7A\u76F4\u8FDE\u3002\u7528\u91CF\u5728\u540E\u53F0\u5B9A\u65F6\u5237\u65B0\uFF0C\u8BF7\u6C42\u8BFB\u53D6\u5DF2\u4FDD\u5B58\u7684\u8C03\u5EA6\u7ED3\u679C\u3002")
+        field("\u540E\u53F0\u7528\u91CF\u5237\u65B0\u95F4\u9694\uFF08\u5206\u949F\uFF09", {
+          type: "number",
+          min: 1,
+          max: 1440,
+          value: config2.usageRefreshMinutes ?? 5,
+          onChange: (event) => change({ usageRefreshMinutes: event.target.value })
+        }),
+        note("\u7528\u91CF\u5728\u540E\u53F0\u5B9A\u65F6\u5237\u65B0\u3002"),
+        compactionApi ? h3(ProxyPortControl, { api: compactionApi }) : null
       ),
       compactionApi ? h3(CompactionControl, { api: compactionApi }) : note("\u5F53\u524D DSH \u672A\u63D0\u4F9B\u539F\u751F\u538B\u7F29\u914D\u7F6E\u3002"),
       h3(
@@ -20949,7 +21014,6 @@ function mountSettings(ctx) {
           setKey("");
           setSelected(null);
           setCatalog([]);
-          setProxyUrl(null);
           setNotice("");
         } }, "\u53D6\u6D88\u4FEE\u6539")
       )

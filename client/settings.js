@@ -59,6 +59,47 @@ export function CompactionControl({api}) {
     h('button',{type:'button',disabled,onClick:save},h(Icon,{name:'check'}),busy?'保存中…':'保存压缩阈值'),
     (notice||snapshot?.error)?h('p',{className:'ci-note',role:'status'},notice||snapshot.error):null);
 }
+export function ProxyPortControl({api}) {
+  const [snapshot,setSnapshot]=React.useState(null);
+  const [draft,setDraft]=React.useState(null);
+  const [notice,setNotice]=React.useState('');
+  const [busy,setBusy]=React.useState(false);
+  React.useEffect(()=>{
+    let alive=true;
+    api.getProxySettings().then(reply=>{
+      if(alive)setSnapshot(reply.ok?reply.value:{available:false,error:'读取 DSH 代理配置失败。'});
+    }).catch(()=>{if(alive)setSnapshot({available:false,error:'无法连接 DSH 配置服务。'});});
+    return ()=>{alive=false;};
+  },[api]);
+
+  const disabled=busy||!snapshot?.available;
+  const canSave=!disabled&&draft!==null&&draft.trim()!==snapshot.port;
+  async function save(){
+    if(!canSave)return;
+    setBusy(true);setNotice('');
+    try{
+      const reply=await api.setProxyPort(draft);
+      if(!reply.ok)throw Error();
+      setSnapshot(reply.value);
+      if(!reply.value.error){
+        setDraft(null);
+        setNotice('代理端口已保存。');
+      }
+    }catch{setNotice('保存代理端口失败，无法连接 DSH 配置服务。');}
+    finally{setBusy(false);}
+  }
+  return h('div',{className:'ci-section'},
+    h('label',null,h('span',null,'Cursor SDK 代理端口'),h('input',{
+      inputMode:'numeric',disabled,placeholder:'7890',value:draft??snapshot?.port??'',
+      onChange:event=>{setDraft(event.target.value);setNotice('');},
+      onKeyDown:event=>{if(event.key==='Enter'){event.preventDefault();void save();}},
+    })),
+    note('填写本机 HTTP 或混合代理端口，留空直连。保存后 DSH 会重新加载 Cursor 集成。'),
+    h('div',{className:'ci-inline'},h('button',{type:'button',disabled:!canSave,onClick:save},
+      h(Icon,{name:busy?'refresh':'check'}),busy?'保存中…':'保存代理端口')),
+    (notice||snapshot?.error)?h('p',{className:'ci-note',role:'status'},notice||snapshot.error):null,
+  );
+}
 export function mountSettings(ctx) {
   function Panel({scope,view,compactionApi}) {
     const snapshot=React.useSyncExternalStore(fn=>scope.subscribe(fn),()=>scope.getSnapshot());
@@ -68,7 +109,6 @@ export function mountSettings(ctx) {
     const [busy,setBusy]=React.useState(false);
     const [catalog,setCatalog]=React.useState([]);
     const [query,setQuery]=React.useState('');
-    const [proxyUrl,setProxyUrl]=React.useState(null);
     const [selected,setSelected]=React.useState(null);
     const [accountMenuOpen,setAccountMenuOpen]=React.useState(false);
     const accountButton=React.useRef(null);
@@ -112,10 +152,6 @@ export function mountSettings(ctx) {
           setNotice('上下文容量须为正整数 Token 数。');return;
         }
       }
-      if(proxyUrl?.trim()){
-        try{const parsed=new URL(proxyUrl);if(parsed.protocol!=='http:')throw Error();}
-        catch{setNotice('代理地址须为 http:// 开头的 HTTP 或混合代理地址。');return;}
-      }
       setBusy(true);setNotice('');
       try {
         if(key.trim()){
@@ -128,10 +164,9 @@ export function mountSettings(ctx) {
           accounts:config.accounts.map(row=>({...row,label:row.label.trim(),configured:row.apiKeyEnv===ref?true:row.configured})),
         };
         const operations=[{op:'set',path:['providers','cursor'],value:JSON.parse(JSON.stringify(next))}];
-        if(proxyUrl!==null)operations.push({op:'set',path:['proxyUrl'],value:proxyUrl.trim()});
         const ok=await scope.mutate(operations,snapshot.revision);
         if(!ok)throw Error();
-        setDraft(null);setProxyUrl(null);setNotice('配置已保存。');
+        setDraft(null);setNotice('配置已保存。');
       } catch {setNotice('保存失败，请刷新配置后重试。');}
       finally {setBusy(false);}
     }
@@ -163,11 +198,10 @@ export function mountSettings(ctx) {
         onChange:event=>{setKey(event.target.value);setCatalog([]);}})),
       note('密钥保存在 DSH 凭据服务。保存后，新请求使用当前账号。')),
       h('section',{className:'ci-section'},heading('network','连接与刷新'),
-      h('div',{className:'ci-grid'},
-      field('Cursor SDK 代理地址',{placeholder:'http://127.0.0.1:7890',value:proxyUrl??snapshot.value?.proxyUrl??'',onChange:event=>setProxyUrl(event.target.value)}),
       field('后台用量刷新间隔（分钟）',{type:'number',min:1,max:1440,value:config.usageRefreshMinutes??5,
-        onChange:event=>change({usageRefreshMinutes:event.target.value})})),
-      note('代理只作用于 Cursor SDK 和相关查询；留空直连。用量在后台定时刷新，请求读取已保存的调度结果。')),
+        onChange:event=>change({usageRefreshMinutes:event.target.value})}),
+      note('用量在后台定时刷新。'),
+      compactionApi?h(ProxyPortControl,{api:compactionApi}):null),
       compactionApi?h(CompactionControl,{api:compactionApi}):note('当前 DSH 未提供原生压缩配置。'),
       h('section',{className:'ci-section'},heading('model','模型目录'),
       h('div',{className:'ci-inline'},
@@ -200,7 +234,7 @@ export function mountSettings(ctx) {
       notice?h('p',{className:'ci-note ci-notice',role:'status'},h(Icon,{name:/失败|须|请输入|不能为空/.test(notice)?'warning':notice==='配置已保存。'?'check':'info'}),notice):null,
       h('footer',{className:'ci-inline ci-footer'},
         h('button',{type:'submit',className:'ci-primary',disabled},h(Icon,{name:busy?'refresh':'check'}),busy?'处理中…':'保存并启用此账号'),
-        h('button',{type:'button',disabled:busy,onClick:()=>{setDraft(null);setKey('');setSelected(null);setCatalog([]);setProxyUrl(null);setNotice('');}},'取消修改')));
+        h('button',{type:'button',disabled:busy,onClick:()=>{setDraft(null);setKey('');setSelected(null);setCatalog([]);setNotice('');}},'取消修改')));
   }
   ctx.inject(['configForms','remote.cursorIntegrationUsage'],child=>{
     const forms=child.configForms;
