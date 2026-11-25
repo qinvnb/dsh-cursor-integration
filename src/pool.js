@@ -51,11 +51,38 @@ export function rank(rows,current,threshold,category='api') {
   return [...plan,...(sticky?[sticky]:[]),...known.filter(row=>row!==sticky),...rows.filter(row=>!known.includes(row)).sort((a,b)=>Number(b.id===current)-Number(a.id===current))];
 }
 export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval=()=>5,loadDefaults=()=>({}),saveDefaults=()=>{},onModelsChanged=()=>{}}) {
+  const cooldownDurations={CURSOR_RATE_LIMITED:300000,CURSOR_AUTH_FAILED:600000};
   let lastAttempt=0, snapshot, pending, timer, stopped=false, selected, manual=false, warning='';
   let saved=loadDefaults();
   const sessions=new Map();
+  const cooldowns=new Map();
   const controller=new AbortController();
   const sticky=new Map();
+  const isCoolingDown=ref=>{
+    const entry=cooldowns.get(ref);
+    if(!entry)return false;
+    if(entry.until<=now().getTime()){cooldowns.delete(ref);return false;}
+    return true;
+  };
+  function reportFailure(ref,code) {
+    const duration=cooldownDurations[code];
+    if(typeof ref!=='string'||!ref||!duration)return;
+    cooldowns.set(ref,{code,until:now().getTime()+duration});
+  }
+  function orderedCandidates(modelId) {
+    const rows=accounts.list();
+    const valid=new Set(rows.map(row=>row.id));
+    const list=[];
+    const push=id=>{if(id&&valid.has(id)&&!list.includes(id))list.push(id);};
+    if(modelId && snapshot?.rankedByModel?.has(modelId)) {
+      for(const ref of snapshot.rankedByModel.get(modelId)) push(ref);
+      return list;
+    }
+    push(modelId?saved?.[modelId]:undefined);
+    push(rows.find(row=>row.active)?.id);
+    for(const row of rows) push(row.id);
+    return list;
+  }
   const minutes=()=>Math.max(1,Math.min(1440,Math.round(Number(interval())||5)));
   const active=()=>selected;
   const info=()=>({cycle:cycleProgress(now()),warning,manual,refreshMinutes:minutes(),updatedAt:snapshot?.updatedAt??null});
@@ -86,13 +113,16 @@ export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval
     const progress=cycleProgress(now());
     const union=new Map();
     const byModel=new Map();
+    const rankedByModel=new Map();
     const rankedRows=rows.map(row=>row.account.data && row.account.status==='error' ? {...row,account:{...row.account,status:'ready'}} :row);
     for(const candidate of candidates.values()) for(const model of candidate.models) union.set(model.id,model);
     for(const id of union.keys()) {
       const eligible=rankedRows.filter(row=>candidates.get(row.id)?.models.some(model=>model.id===id));
       const prior=sticky.get(id);
       const category=quotaCategory(id);
-      const [best]=rank(eligible,prior?.cycle===progress.cycle?prior.ref:undefined,progress.percent,category);
+      const sorted=rank(eligible,prior?.cycle===progress.cycle?prior.ref:undefined,progress.percent,category);
+      rankedByModel.set(id,sorted.map(row=>row.id));
+      const [best]=sorted;
       if(!best) continue;
       const plan=meter(best,category), usage=meter(best,'onDemand');
       const demand=!(plan && plan.percent<100);
@@ -111,7 +141,7 @@ export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval
     const models=[...union.values()];
     const fingerprint=rows=>JSON.stringify(rows?.slice().sort((a,b)=>a.id.localeCompare(b.id)));
     const changed=fingerprint(snapshot?.models??[])!==fingerprint(models);
-    snapshot={byModel,candidates,models,byId:new Map(rows.map(row=>[row.id,row])),totals:totals(rows),updatedAt:now().getTime()};
+    snapshot={byModel,rankedByModel,candidates,models,byId:new Map(rows.map(row=>[row.id,row])),totals:totals(rows),updatedAt:now().getTime()};
     if(changed)onModelsChanged();
   }
   function refresh() {
@@ -149,16 +179,35 @@ export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval
     const row=accounts.list().find(item=>item.active)??accounts.list()[0];
     return row?catalog(await resolve(row.id),signal):[];
   }
-  function choose(id){selected=id;manual=Boolean(id);warning='';}
+  function choose(id){if(id)cooldowns.delete(id);selected=id;manual=Boolean(id);warning='';}
   function plannedRef(model){
     const rows=accounts.list();
     const id=model?.split('@')[0];
-    const best=manual?selected:snapshot?.byModel.get(id)?.ref??saved?.[id];
-    return rows.find(row=>row.id===best)?.id ?? rows.find(row=>row.active)?.id ?? rows[0]?.id;
+    if(manual) return rows.find(row=>row.id===selected)?.id ?? rows.find(row=>row.active)?.id ?? rows[0]?.id;
+    const candidates=orderedCandidates(id);
+    return candidates.find(ref=>!isCoolingDown(ref)) ?? candidates[0];
+  }
+  async function failover(model,signal,excludeRefs,sessionId) {
+    signal?.throwIfAborted();
+    if(manual) return undefined;
+    const id=model.split('@')[0];
+    const skip=excludeRefs instanceof Set?excludeRefs:new Set(excludeRefs?[excludeRefs]:[]);
+    for(const ref of orderedCandidates(id)) {
+      if(skip.has(ref)||isCoolingDown(ref)) continue;
+      const key=await resolve(ref);
+      signal?.throwIfAborted();
+      if(!key) continue;
+      selected=ref;
+      warning='已自动切换至备用可用账号。';
+      if(sessionId){sessions.delete(sessionId);sessions.set(sessionId,{ref,model:id,time:now().getTime()});if(sessions.size>512)sessions.delete(sessions.keys().next().value);}
+      const cached=snapshot?.candidates.get(ref);
+      return {ref,key,models:cached?.key===key?cached.models:undefined};
+    }
+    return undefined;
   }
   function defaults(){
     const ids=snapshot?.models.map(model=>model.id)??Object.keys(saved??{});
     return Object.fromEntries(ids.map(id=>[id,plannedRef(id)??null]));
   }
-  return {route,active,info,choose,models,refresh,view,start,close,plannedRef,defaults,session:id=>sessions.get(id)};
+  return {route,active,info,choose,models,refresh,view,start,close,plannedRef,defaults,reportFailure,failover,session:id=>sessions.get(id)};
 }

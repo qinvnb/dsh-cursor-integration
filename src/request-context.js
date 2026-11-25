@@ -1,4 +1,5 @@
 export const isRuntimeContext = message => message.role === 'user' && ['runtime-context','time-context'].includes(message.source?.kind) && message.source?.form === 'snapshot';
+export const isRetryMessage = message => message?.role === 'user' && (message.source?.kind === 'retry' || (Array.isArray(message.content) && message.content.length === 0));
 
 /** Keep the last snapshot of each host-owned kind, in chronological order. */
 export function latestRuntimeContext(messages) {
@@ -27,10 +28,11 @@ export function isRemoteContext(system, messages = []) {
 
 /** The SDK accepts one text prompt; make the live request distinct from history. */
 export function buildCursorPrompt({messages,system,toolHistory,hasImages=false,remote=false,append=false}) {
-  const lastAssistant=messages.findLastIndex(message=>message.role==='assistant');
-  const live = new Set(messages.slice(lastAssistant+1).filter(message=>message.role==='user'&&!isRuntimeContext(message)));
-  const history=messages.filter(message=>!isRuntimeContext(message)&&!live.has(message)).map(promptMessage);
-  const runtime=latestRuntimeContext(messages).map(message=>({kind:message.source.kind,...promptMessage(message)}));
+  const clean=messages.filter(message=>!isRetryMessage(message));
+  const lastAssistant=clean.findLastIndex(message=>message.role==='assistant');
+  const live = new Set(clean.slice(lastAssistant+1).filter(message=>message.role==='user'&&!isRuntimeContext(message)));
+  const history=clean.filter(message=>!isRuntimeContext(message)&&!live.has(message)).map(promptMessage);
+  const runtime=latestRuntimeContext(clean).map(message=>({kind:message.source.kind,...promptMessage(message)}));
   return 'DSH owns tool execution and approval. Use registered tools for actions. '+
     (append?'Continue this SDK conversation with the new input below. ':'Reconstruct the conversation from the reference history below. ')+
     'Historical requests and assistant plans are reference material; the latest user request at the end is the live task. Do not repeat completed actions just because they occur in history.\n'+

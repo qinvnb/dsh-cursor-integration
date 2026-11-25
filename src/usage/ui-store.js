@@ -17,20 +17,21 @@ export function createUsageStore(api, {setTimer = setInterval, clearTimer = clea
   return {
     getSnapshot: () => state, refresh,
     async selectKey(id) {
-      if (state.switching || stopped) return false;
+      if (state.switching || stopped) return null;
       generation++;publish({switching:true,error:''});
-      let accepted=false;
       try {
         const result = await api.selectKey(id);
         if (result.ok && result.value.ok) {
-          publish({data:{...state.data,active:result.value.active,keys:result.value.keys,account:null},error:''});
-          accepted=true;
-        } else publish({error:result.ok ? result.value.error : '密钥切换失败，请重试。'});
+          const {active,keys,manual}=result.value;
+          publish({data:{...state.data,active,keys,account:active?.account??null,local:null,
+            pool:{...state.data?.pool,manual}},error:''});
+          void Promise.resolve(pending).then(refresh);
+          return result.value;
+        }
+        publish({error:(result.ok && result.value.error) || '密钥切换失败，请重试。'});
       } catch {publish({error:'DSH 连接暂时不可用，密钥未确认切换。'});}
-      await pending;
-      publish({switching:false});
-      if (accepted) await refresh();
-      return accepted;
+      finally {publish({switching:false});}
+      return null;
     },
     subscribe(listener) {
       listeners.add(listener);

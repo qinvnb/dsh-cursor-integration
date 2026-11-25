@@ -5,6 +5,13 @@ export const styles = `
 .cu-status-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;font-size:16px;line-height:1;color:var(--dsw-alias-label-secondary)}
 .cu-status-text{overflow-wrap:anywhere}
 .cu-status-detail{color:var(--dsw-alias-label-tertiary);border-left:1px solid var(--dsw-alias-border-l3);padding-left:8px}
+.cu-retry-wrap{display:inline-flex;align-items:center;gap:6px;flex:none}
+.cu-retry-btn{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm,6px);background:transparent;color:var(--dsw-alias-state-business-primary,var(--dsw-alias-label-primary));font:inherit;font-size:12px;font-weight:500;line-height:1;cursor:pointer}
+.cu-retry-btn svg{width:12px;height:12px;flex:none}
+.cu-retry-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.cu-retry-btn:disabled{opacity:.5;cursor:default}
+.cu-retry-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.cu-retry-error{color:var(--dsw-alias-state-error-primary,#c44942);font-size:12px}
 .cu-status-error .cu-status-icon{color:var(--dsw-alias-state-error-primary,#c44942)}
 .cu-status-busy .cu-status-icon{color:var(--dsw-alias-state-business-primary)}
 .cu-quota-row{gap:4px 8px;padding:0 2px}

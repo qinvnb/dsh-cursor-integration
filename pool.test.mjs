@@ -32,7 +32,13 @@ test('a suspended refresh never blocks cold or warm routing, previews, or dock r
  const rows=[{...row('a',60,2),active:true},row('b',10,3)];
  const accounts={list:()=>rows,all:()=>{reads++;return new Promise(resolve=>{finish=()=>resolve({accounts:rows});});}};
  const pool=createPool({accounts,resolve:async id=>id,catalog:async()=>{lookups++;return [{id:'claude'}];}});
- const cold=pool.refresh();assert.equal((await pool.route('claude')).ref,'a');assert.equal(pool.view().accounts[0].account.status,'pending');assert.equal(lookups,0);finish();await cold;
+ const cold=pool.refresh();assert.equal((await pool.route('claude')).ref,'a');assert.equal(pool.view().accounts[0].account.status,'pending');
+ pool.choose('b');
+ assert.equal((await pool.route('claude')).ref,'b');
+ assert.equal((await pool.route('claude',undefined,'a')).ref,'a');
+ assert.equal(lookups,0);finish();await cold;
+ assert.equal(pool.info().manual,true);
+ pool.choose(undefined);
  const warm=pool.refresh();assert.equal((await pool.route('claude')).ref,'b');assert.equal((await pool.route('claude',undefined,undefined,true)).ref,'b');assert.equal((await pool.models())[0].id,'claude');assert.equal(pool.view().accounts[0].account.status,'ready');assert.equal(lookups,2);assert.equal(reads,2);finish();await warm;pool.close();
 });
 test('one background snapshot chooses opposite accounts for Composer/Grok and Claude/GPT', async()=>{
@@ -60,5 +66,41 @@ test('failed persistence keeps live defaults and retries on the next refresh',as
  assert.equal((await pool.route('claude')).ref,'b');
  await pool.refresh();
  assert.equal(writes,2);
+ pool.close();
+});
+
+test('cooldown skips rate-limited and auth-failed accounts, clears on manual choose, and falls back when all cool down',async()=>{
+ let clock=1000;
+ const rows=[row('a',10,0),row('b',50,0)];
+ const pool=createPool({
+  accounts:{list:()=>rows,all:async()=>({accounts:rows})},
+  resolve:async id=>id,
+  catalog:async()=>[{id:'claude'}],
+  now:()=>new Date(clock),
+ });
+ await pool.refresh();
+ assert.equal((await pool.route('claude')).ref,'a');
+ pool.reportFailure('a','CURSOR_RATE_LIMITED');
+ assert.equal((await pool.route('claude')).ref,'b');
+
+ // Failover returns undefined when all alternatives are cooling down, and falls back in route()
+ pool.reportFailure('b','CURSOR_AUTH_FAILED');
+ assert.equal(await pool.failover('claude',undefined,'b'),undefined);
+ assert.equal((await pool.route('claude')).ref,'a');
+
+ // Rate limit expires after 5m while auth failure (10m) remains cooled
+ clock+=300001;
+ assert.equal((await pool.route('claude')).ref,'a');
+ assert.equal(await pool.failover('claude',undefined,'a'),undefined);
+
+ // Auth failure expires after 10m total, and manual choose clears cooldown and pins
+ clock+=300000;
+ const alt=await pool.failover('claude',undefined,'a','sess-1');
+ assert.equal(alt?.ref,'b');
+ assert.equal(pool.session('sess-1')?.ref,'b');
+ pool.reportFailure('b','CURSOR_AUTH_FAILED');
+ pool.choose('b');
+ assert.equal(await pool.failover('claude',undefined,'b'),undefined);
+ assert.equal((await pool.route('claude')).ref,'b');
  pool.close();
 });

@@ -19,33 +19,50 @@ export function updateProxyPort(proxyUrl, input) {
 
 export function proxySettings(editor, namespace) {
   const locate = () => editor?.configuration().find(row => row.entry.options.id === namespace);
+  const snapshot = config => ({
+    available: true,
+    port: readProxyPort(config.proxyUrl),
+    agentHttpProtocol: config.agentHttpProtocol === 'http1' ? 'http1' : 'http2',
+    proxyAgentRetries: Boolean(config.proxyAgentRetries),
+  });
 
   function get() {
     const row = locate();
-    if (!row) return { available: false, error: 'DSH 代理配置暂不可用。' };
-    return { available: true, port: readProxyPort(row.override.proxyUrl ?? row.inherited.proxyUrl) };
+    if (!row) return { available: false, error: 'DSH 连接配置暂不可用。' };
+    return snapshot({...row.inherited, ...row.override});
   }
 
-  async function set(input) {
+  async function setConnection({port, agentHttpProtocol, proxyAgentRetries}) {
     const row = locate();
-    if (!row) return { available: false, error: 'DSH 代理配置暂不可用。' };
+    if (!row) return { available: false, error: 'DSH 连接配置暂不可用。' };
+    if (agentHttpProtocol !== undefined && !['http1','http2'].includes(agentHttpProtocol)) {
+      return {...get(), error: '请选择 HTTP/2 或 HTTP/1.1（SSE）。'};
+    }
+    if (proxyAgentRetries !== undefined && typeof proxyAgentRetries !== 'boolean') {
+      return {...get(), error: 'SDK 自动重连开关须为布尔值。'};
+    }
     let savedPort;
     try {
-      savedPort = readProxyPort(updateProxyPort(undefined, input));
+      if (port !== undefined) savedPort = readProxyPort(updateProxyPort(undefined, port));
     } catch {
       return { ...get(), error: '代理端口须为 1～65535 的整数。' };
     }
 
     try {
-      await editor.edit(row.entry, (current, inherited) => ({
-        ...current,
-        proxyUrl: updateProxyPort(current.proxyUrl ?? inherited.proxyUrl, savedPort),
-      }));
-      return { available: true, port: savedPort };
+      let saved;
+      await editor.edit(row.entry, (current, inherited) => {
+        const next = {...current};
+        if (savedPort !== undefined) next.proxyUrl = updateProxyPort(current.proxyUrl ?? inherited.proxyUrl, savedPort);
+        if (agentHttpProtocol !== undefined) next.agentHttpProtocol = agentHttpProtocol;
+        if (proxyAgentRetries !== undefined) next.proxyAgentRetries = proxyAgentRetries;
+        saved = snapshot({...inherited, ...next});
+        return next;
+      });
+      return saved;
     } catch {
-      return { ...get(), error: 'DSH 未能写入代理端口，请重新打开设置后重试。' };
+      return { ...get(), error: 'DSH 未能保存连接设置，请重新打开设置后重试。' };
     }
   }
 
-  return { get, set };
+  return { get, set: port => setConnection({port}), setConnection };
 }

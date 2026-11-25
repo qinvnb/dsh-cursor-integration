@@ -3,20 +3,30 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {compactionSettings} from './src/compaction-settings.js';
+import {isPendingCompactionConflict} from './src/compaction-profile.js';
+
+test('only an inactive same-named preset can use the scoped compaction save',()=>{
+ const pending='compaction-basic (test-compaction): pending (waiting for service: tokenMeter)';
+ const warning='dsh: warning: 1 entry did not activate';
+ assert.equal(isPendingCompactionConflict(new Error(warning+'\n'+pending)),true);
+ assert.equal(isPendingCompactionConflict(new Error(warning+'\n'+pending.replace('compaction-basic','some-other-entry'))),false);
+ assert.equal(isPendingCompactionConflict(new Error(warning+'\n'+pending.replace('pending','failed'))),false);
+ assert.equal(isPendingCompactionConflict(new Error(warning+'\n'+pending+'\nother: import failed')),false);
+});
 
 test('non-volatile native configuration uses ConfigEditor and preserves other fields',async()=>{
  const entry={options:{id:'compaction-basic'}};
  let config={thresholdRatio:0.7,retainRatio:0.16,modelPolicies:[{provider:'other',model:'m',thresholdRatio:0.9}]},writes=0;
  const editor={configuration:()=>[{entry,inherited:{},override:structuredClone(config)}],edit:async(e,change)=>{
   assert.equal(e,entry);const next=change(structuredClone(config));
-  if(next.thresholdRatio<=next.retainRatio)throw Error('native validation');
+  if(next.thresholdRatio<=next.retainRatio)throw Error('BasicCompactionConfig: retainRatio (0.16) must be less than the resolved thresholdRatio (0.1)');
   config=next;writes++;
  }};
  const control=compactionSettings(editor);
  assert.equal(control.get().thresholdRatio,0.7);
  assert.equal((await control.set(0.55)).thresholdRatio,0.55);
  assert.equal(config.retainRatio,0.16);assert.equal(config.modelPolicies[0].thresholdRatio,0.9);
- assert.ok((await control.set(0.1)).error);assert.equal(config.thresholdRatio,0.55);
+ assert.match((await control.set(0.1)).error,/保留比例/);assert.equal(config.thresholdRatio,0.55);
  assert.ok((await control.set(1.1)).error);assert.equal(writes,1);
  assert.equal(compactionSettings(undefined).get().available,false);
 });

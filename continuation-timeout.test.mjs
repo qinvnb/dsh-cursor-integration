@@ -180,12 +180,176 @@ test('proxy diagnosis tracks the route independently of the SDK retry policy',as
   const proxy=new CursorTransport({loadSDK,requestDiagnostics,networkScope});
   const optedIn=new CursorTransport({loadSDK,requestDiagnostics,networkScope,enableAgentRetries:true});
   const direct=new CursorTransport({loadSDK,requestDiagnostics});
+  const directOptedIn=new CursorTransport({loadSDK,requestDiagnostics,enableAgentRetries:true});
   try {
     await read(proxy,request);
     await read(proxy,{...request,purpose:'compaction'});
     await read(optedIn,request);
     await read(direct,{...request,purpose:'compaction'});
-    assert.deepEqual(optionsSeen,[false,true,true,false]);
-    assert.deepEqual(routes,['proxy','proxy','proxy','direct']);
-  } finally {await Promise.all([proxy.close(),optedIn.close(),direct.close()]);}
+    await read(directOptedIn,request);
+    assert.deepEqual(optionsSeen,[false,true,true,false,true]);
+    assert.deepEqual(routes,['proxy','proxy','proxy','direct','direct']);
+  } finally {await Promise.all([proxy.close(),optedIn.close(),direct.close(),directOptedIn.close()]);}
+});
+
+test('run.wait failure after tool submission surfaces allowlisted facts without leaking raw text or replaying tools',async()=>{
+  const seen={creates:0,tools:0,results:0};
+  const sdk={JsonlLocalAgentStore:class{},Agent:{create:async options=>{
+    seen.creates++;
+    return {send:async()=>({
+      stream:async function*(){
+        seen.tools++;
+        await options.local.customTools.work.execute({},{toolCallId:'one'});
+        seen.results++;
+      },
+      wait:async()=>({status:'error',error:{message:'[deadline_exceeded] bidi_append_deadline_exceeded: confidential detail'}}),
+    }),async [Symbol.asyncDispose](){}};
+  }}};
+  const transport=new CursorTransport({loadSDK:async()=>sdk,timeoutMs});
+  const request={apiKey:'fixture',sessionId:'s',model:{id:'m'},messages:[user('work')],prompt:'work',
+    tools:[{name:'work',parameters:{}}],validate:()=>true};
+  try {
+    const next=await pending(transport,request);
+    await assert.rejects(read(transport,next),error=>{
+      assert.equal(error.code,'CONTINUATION_FAILED');
+      assert.match(error.message,/CURSOR_NETWORK_TIMEOUT: deadline_exceeded, bidi_append_deadline_exceeded/);
+      assert.doesNotMatch(error.message,/confidential/);
+      return true;
+    });
+    assert.deepEqual(seen,{creates:1,tools:1,results:1});
+  } finally {await transport.close();}
+});
+
+test('retry budget guard aborts consecutive retries without progress and resets after visible progress',async()=>{
+  let triggerRetry;
+  const requestDiagnostics={run(_id,_route,action,_proto,hooks){triggerRetry=hooks?.onRetry;return action();}};
+  const paths=[];
+  const makeSdk=(produce)=>async()=>({JsonlLocalAgentStore:class{},Agent:{create:async()=>({
+    send:async()=>({stream:produce,wait:async()=>({status:'finished'})}),
+    async [Symbol.asyncDispose](){},
+  })}});
+
+  const tripped=new CursorTransport({
+    loadSDK:makeSdk(async function*(){
+      triggerRetry?.(1);
+      triggerRetry?.(2);
+      triggerRetry?.(3);
+      await delay(200);
+      yield answer;
+    }),
+    requestDiagnostics,enableAgentRetries:true,maxConsecutiveSdkRetries:2,maxRetryWindowMs:5000,timeoutMs:5000,
+    onPath:(_id,label)=>paths.push(label),
+  });
+  try {
+    await assert.rejects(read(tripped,{apiKey:'fixture',sessionId:'s1',model:{id:'m'},messages:[user('work')],prompt:'work'}),
+      {code:'CURSOR_RETRY_EXHAUSTED'});
+    assert.ok(paths.includes('连接波动，正在第 1 次自动重连…'));
+    assert.ok(paths.includes('连接波动，正在第 3 次自动重连…'));
+    assert.ok(paths.includes('自动重连超时止损'));
+  } finally {await tripped.close();}
+
+  const resetOnProgress=new CursorTransport({
+    loadSDK:makeSdk(async function*(){
+      triggerRetry?.(1);
+      triggerRetry?.(2);
+      yield {type:'thinking',text:'making progress'};
+      triggerRetry?.(3);
+      triggerRetry?.(4);
+      yield answer;
+    }),
+    requestDiagnostics,enableAgentRetries:true,maxConsecutiveSdkRetries:2,maxRetryWindowMs:5000,timeoutMs:5000,
+  });
+  try {
+    const events=await read(resetOnProgress,{apiKey:'fixture',sessionId:'s2',model:{id:'m'},messages:[user('work')],prompt:'work'});
+    assert.ok(events.some(e=>e.type==='text'&&e.text==='done'));
+  } finally {await resetOnProgress.close();}
+});
+
+test('retry budget window aborts stalled retries and protects completed tools from replay',async()=>{
+  let triggerRetry;
+  const requestDiagnostics={run(_id,_route,action,_proto,hooks){triggerRetry=hooks?.onRetry;return action();}};
+  const windowTransport=new CursorTransport({
+    loadSDK:async()=>({JsonlLocalAgentStore:class{},Agent:{create:async()=>({
+      send:async()=>({
+        stream:async function*(){triggerRetry?.(1);await delay(300);yield answer;},
+        wait:async()=>({status:'finished'}),
+      }),
+      async [Symbol.asyncDispose](){},
+    })}}),
+    requestDiagnostics,enableAgentRetries:true,maxConsecutiveSdkRetries:3,maxRetryWindowMs:40,timeoutMs:5000,
+  });
+  try {
+    await assert.rejects(read(windowTransport,{apiKey:'fixture',sessionId:'s3',model:{id:'m'},messages:[user('work')],prompt:'work'}),
+      {code:'CURSOR_RETRY_EXHAUSTED'});
+  } finally {await windowTransport.close();}
+
+  const seen={creates:0,tools:0,results:0};
+  const contTransport=new CursorTransport({
+    loadSDK:async()=>({JsonlLocalAgentStore:class{},Agent:{create:async options=>{
+      seen.creates++;
+      return {send:async()=>({
+        stream:async function*(){
+          seen.tools++;
+          await options.local.customTools.work.execute({},{toolCallId:'one'});
+          seen.results++;
+          triggerRetry?.(1);
+          triggerRetry?.(2);
+          await delay(300);
+          yield answer;
+        },
+        wait:async()=>({status:'finished'}),
+      }),async [Symbol.asyncDispose](){}};
+    }}}),
+    requestDiagnostics,enableAgentRetries:true,maxConsecutiveSdkRetries:1,maxRetryWindowMs:5000,timeoutMs:5000,
+  });
+  const req={apiKey:'fixture',sessionId:'s4',model:{id:'m'},messages:[user('work')],prompt:'work',
+    tools:[{name:'work',parameters:{}}],validate:()=>true};
+  try {
+    const next=await pending(contTransport,req);
+    await assert.rejects(read(contTransport,next),error=>
+      error.code==='CONTINUATION_FAILED'&&error.message.includes('CURSOR_RETRY_EXHAUSTED: retry_budget_exceeded'));
+    assert.deepEqual(seen,{creates:1,tools:1,results:1});
+  } finally {await contTransport.close();}
+});
+
+test('HTTP 200 response headers pause the retry window timer while still bounding total consecutive retries',async()=>{
+  let hooks;
+  const requestDiagnostics={run(_id,_route,action,_proto,h){hooks=h;return action();}};
+  const paths=[];
+  const makeSdk=produce=>async()=>({JsonlLocalAgentStore:class{},Agent:{create:async()=>({
+    send:async()=>({stream:produce,wait:async()=>({status:'finished'})}),
+    async [Symbol.asyncDispose](){},
+  })}});
+
+  const healthyWait=new CursorTransport({
+    loadSDK:makeSdk(async function*(){
+      hooks?.onRetry?.(1);
+      hooks?.onResponseHeaders?.(200,undefined);
+      await delay(80);
+      yield answer;
+    }),
+    requestDiagnostics,enableAgentRetries:true,maxConsecutiveSdkRetries:3,maxRetryWindowMs:35,timeoutMs:5000,
+    onPath:(_id,label)=>paths.push(label),
+  });
+  try {
+    const events=await read(healthyWait,{apiKey:'fixture',sessionId:'s-h200',model:{id:'m'},messages:[user('work')],prompt:'work'});
+    assert.ok(events.some(e=>e.type==='text'&&e.text==='done'));
+    assert.ok(paths.includes('已重新建立连接，等待模型响应…'));
+  } finally {await healthyWait.close();}
+
+  const resetLoop=new CursorTransport({
+    loadSDK:makeSdk(async function*(){
+      hooks?.onRetry?.(1);
+      hooks?.onResponseHeaders?.(200,0);
+      hooks?.onRetry?.(2);
+      hooks?.onRetry?.(3);
+      await delay(100);
+      yield answer;
+    }),
+    requestDiagnostics,enableAgentRetries:true,maxConsecutiveSdkRetries:2,maxRetryWindowMs:5000,timeoutMs:5000,
+  });
+  try {
+    await assert.rejects(read(resetLoop,{apiKey:'fixture',sessionId:'s-loop',model:{id:'m'},messages:[user('work')],prompt:'work'}),
+      {code:'CURSOR_RETRY_EXHAUSTED'});
+  } finally {await resetLoop.close();}
 });

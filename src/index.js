@@ -8,6 +8,7 @@ import {CursorTransport} from './transport.js';
 import {catalogMetadata,defineAdapter,contextChoices} from './adapter.js';
 import {ProviderError} from './provider.js';
 import {createCursorProxy} from './proxy.js';
+import {createCursorSdkLoader} from './sdk-transport.js';
 import {createRequestDiagnostics} from './request-diagnostics.js';
 import {dirname} from 'node:path';
 import {createPool} from './pool.js';
@@ -32,6 +33,7 @@ const accountConfig=z.object({
 });
 export const Config=z.object({
   proxyUrl:z.string(),
+  agentHttpProtocol:z.union([z.const('http2'),z.const('http1')]).default('http2'),
   requestDiagnostics:z.boolean().default(true),
   proxyAgentRetries:z.boolean().default(false),
   providers:z.dict(z.object({
@@ -55,8 +57,10 @@ export function apply(ctx,config) {
   const requestDiagnostics=config.requestDiagnostics!==false?createRequestDiagnostics({
     directory:dirname(checkpointRoot),onWriteFailure:()=>ctx.logger.warn('Cursor request diagnostics could not be written'),
   }):undefined;
-  const options={checkpointRoot,onPath,onCleanupDeferred,requestDiagnostics};
-  const transport=new CursorTransport({...options,networkScope:proxy?.run,enableAgentRetries:config.proxyAgentRetries});
+  const sdkLoader=createCursorSdkLoader(config.agentHttpProtocol);
+  const options={checkpointRoot,onPath,onCleanupDeferred,requestDiagnostics,
+    loadSDK:sdkLoader.load,agentHttpProtocol:config.agentHttpProtocol,enableAgentRetries:config.proxyAgentRetries};
+  const transport=new CursorTransport({...options,networkScope:proxy?.run});
   const direct=new CursorTransport(options);
   const resolve=async ref=>(await ctx.credentials.resolve(ref))?.value;
   const credential=async()=>{
@@ -104,6 +108,7 @@ export function apply(ctx,config) {
   timer.unref?.();
   ctx.effect(()=>async()=>{
     clearInterval(timer);
+    sdkLoader.close();
     checks.stop();pool.close();accounts.close();
     try {await Promise.all([transport.close(),direct.close()]);}
     finally {await Promise.all([proxy?.close(),requestDiagnostics?.close()]);}
@@ -124,6 +129,7 @@ export function apply(ctx,config) {
   const Adapter=defineAdapter({
     LlmAdapter,LlmError,transport,directTransport:direct,profile,credential,
     routeAccount:pool.route,preferredRoute:checks.preferred,poolModels:pool.models,
+    reportAccountFailure:pool.reportFailure,failoverAccount:pool.failover,
     validate:createToolValidator(Ajv),attachments:()=>ctx.get('attachments'),offloadedImageText,
   });
   ctx.llm.registerAdapter(['cursor'],new Adapter());

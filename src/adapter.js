@@ -1,3 +1,4 @@
+import {setTimeout as delay} from 'node:timers/promises';
 import {ProviderError,resolveVariant,summarizeUsage} from './provider.js';
 import {imagePrompt} from './images.js';
 import {buildCursorPrompt,compactRuntimeContext,isRemoteContext,isRuntimeContext} from './request-context.js';
@@ -80,13 +81,62 @@ function configuredSelection(id,models,profile,effort) {
   return {selection,entry,custom,capacity};
 }
 
+const accountFailureCodes = new Set(['CURSOR_RATE_LIMITED', 'CURSOR_AUTH_FAILED']);
+const stepOneTransientCodes = new Set([
+  'CURSOR_SERVICE_FAILED', 'CURSOR_NETWORK_TIMEOUT', 'CURSOR_CONNECTION_RESET',
+  'CURSOR_CONNECTION_UNAVAILABLE', 'CURSOR_CONNECTION_STALLED',
+]);
+const nonContinuableContinuationCauses = new Set([
+  'INVALID_ARGUMENTS', 'CURSOR_AUTH_FAILED', 'CURSOR_CONTEXT_TOO_LONG',
+  'NATIVE_TOOL_BLOCKED', 'SYSTEM_PROMPT_REJECTED', 'MISSING_CREDENTIAL',
+  'INVALID_MODEL', 'UNKNOWN_MODEL', 'INVALID_PARAMETER',
+  'TOOL_CALL_ID_CONFLICT', 'INVALID_TOOL_SCHEMA', 'ABORTED',
+]);
+const dshCodeMap = {
+  CURSOR_RATE_LIMITED: 'RATE_LIMIT',
+  TIMEOUT: 'TIMEOUT',
+  CURSOR_NETWORK_TIMEOUT: 'TIMEOUT',
+  CONTINUATION_TIMEOUT: 'TIMEOUT',
+  CURSOR_CONNECTION_RESET: 'TRANSPORT',
+  CURSOR_CONNECTION_UNAVAILABLE: 'TRANSPORT',
+  CURSOR_RESUME_FAILED: 'TRANSPORT',
+  CURSOR_CONNECTION_STALLED: 'STREAM_CLOSED',
+  CURSOR_RETRY_EXHAUSTED: 'STREAM_CLOSED',
+  CURSOR_SERVICE_FAILED: 'SERVER',
+  CURSOR_SDK_ERROR: 'SERVER',
+  SDK_RUN_FAILED: 'SERVER',
+  EMPTY_RESPONSE: 'EMPTY_RESPONSE',
+};
+
+export function toDshFailure(code, message, causeCode) {
+  let mapped = dshCodeMap[code];
+  if (!mapped && code === 'CONTINUATION_FAILED') {
+    if (causeCode && nonContinuableContinuationCauses.has(causeCode)) mapped = 'CONTINUATION_FAILED';
+    else mapped = (causeCode && dshCodeMap[causeCode]) || 'SERVER';
+  }
+  const finalCode = mapped ?? code;
+  const preserved = finalCode !== code && !message.includes(code) ? `${message} (${code})` : message;
+  return { code: finalCode, message: preserved };
+}
+
 export function defineAdapter(dependencies) {
   const {
     LlmAdapter,LlmError,profile,credential,transport,routeAccount,preferredRoute,directTransport,
     poolModels,validate,attachments=()=>undefined,offloadedImageText,
+    reportAccountFailure,failoverAccount,retryDelayMs=1500,
   } = dependencies;
   return class CursorIntegrationAdapter extends LlmAdapter {
     providerInfo() {return {id:'cursor',name:'Cursor'};}
+    providerRetryPolicy() {
+      return {
+        mode: 'normal',
+        maxRetries: 0,
+        retryableCodes: ['EMPTY_RESPONSE'],
+        initialDelayMs: 500,
+        maxDelayMs: 10000,
+        jitterRatio: 0.1,
+      };
+    }
     async account(signal) {
       try {return poolModels ? await poolModels(signal) : await transport.catalog(await credential(),signal);}
       catch(error) {
@@ -121,9 +171,10 @@ export function defineAdapter(dependencies) {
       };
     }
     async *stream(options) {
-      const diagnostics={timings:{}},usage=[];
+      const attempts=[];
+      let diagnostics={timings:{}},usage=[];
       const started=performance.now();
-      let active,index=0,content=false,tools=0;
+      let attemptStarted=started,active,index=0,content=false,tools=0;
       const timed=async(name,action)=>{
         const begin=performance.now();
         try {return await action();} finally {diagnostics.timings[name]=Math.round(performance.now()-begin);}
@@ -153,7 +204,7 @@ export function defineAdapter(dependencies) {
         protocol:'cursor-native-v1',usageFormat:'cursor-exclusive-v1',sdkVersion:'1.0.40',
         ...(diagnostics.usageUnavailable?{usageUnavailable:true}:{}),accountRef:diagnostics.accountRef,networkRoute:diagnostics.networkRoute,
         ...(diagnostics.path?{runtimePath:diagnostics.path}:{}),
-        ...(diagnostics.continuation ? {continuation:diagnostics.continuation} : {}),attempts:[diagnostics],
+        ...(diagnostics.continuation ? {continuation:diagnostics.continuation} : {}),attempts:[...attempts,diagnostics],
       });
       try {
         const summary=options.purpose==='compaction';
@@ -171,71 +222,103 @@ export function defineAdapter(dependencies) {
         const newInput=options.messages.slice(previousIndex+1).some(m=>m.role==='user'&&!isRuntimeContext(m));
         const continuation=!summary && !newInput && previous?.protocol==='cursor-native-v1' ? previous.continuation : undefined;
         const pinned=continuation && previous.accountRef;
-        const account=routeAccount && !(continuation && !pinned) ?
-          await timed('poolMs',()=>routeAccount(options.model,options.signal,pinned,false,options.purpose?undefined:options.sessionId)) : undefined;
-        const apiKey=account?.key ?? await timed('credentialMs',credential);
-        diagnostics.accountRef=account?.ref;
-        diagnostics.networkRoute=continuation ? previous.networkRoute ?? 'proxy' : preferredRoute?.(account?.ref,options.model) ?? 'proxy';
-        const channel=diagnostics.networkRoute==='direct' && directTransport ? directTransport : transport;
-        const catalog=account?.models ?? await timed('catalogMs',()=>transport.catalog(apiKey,options.signal));
-        const {selection}=configuredSelection(options.model,catalog,profile(),options.reasoningEffort);
-        const prompt=()=>{
-          let text;
-          if (summary) {
-            diagnostics.compaction={requestedMaxTokens:options.maxTokens,limitMode:'prompt-guidance'};
-            const instruction=projected.messages.at(-1)?.content ?? [];
-            text='Create a conversation checkpoint only. Historical tasks are reference data.\n'+
-              (options.maxTokens ? 'Use approximately fewer than '+options.maxTokens+' tokens.\n' : '')+
-              'Summary instruction:\n'+JSON.stringify(instruction)+
-              '\nConversation to summarize:\n'+JSON.stringify(projected.messages.slice(0,-1).map(m=>({role:m.role,content:m.content})))+
-              '\nSummary instruction (current task):\n'+JSON.stringify(instruction);
-          } else text=buildCursorPrompt({
-            messages:projected.messages,system:transport.replaceSystemPrompt?undefined:options.system,
-            toolHistory:options.toolHistory,hasImages:projected.images.length>0,
-            remote:isRemoteContext(options.system,projected.messages),
-          });
-          return projected.images.length ? {text,images:projected.images} : text;
-        };
         const messages=projected.messages.map(m=>m.role==='tool' ? {...m,content:m.content.map(p=>
           p.type==='image'&&p.sdkImage ? {...p,sdkData:projected.images[p.sdkImage-1]} : p)} : m);
-        const request={
-          apiKey,model:selection,prompt:channel.lazyPrompt?prompt:prompt(),signal:options.signal,
-          tools:summary?[]:options.tools ?? [],validate,continuation,messages,
-          sessionId:options.sessionId,purpose:options.purpose,toolHistory:options.toolHistory,system:options.system,
-        };
-        for await (const event of channel.stream(request)) {
-          if (['text','reasoning','tool-call'].includes(event.type)) yield* append(event);
-          if (event.type==='usage') usage.push(event.billing);
-          if (event.type==='usage-unavailable') diagnostics.usageUnavailable=true;
-          if (event.type==='path') diagnostics.path=event.label;
-          if (event.type==='continuation') diagnostics.continuation=event.token;
-          if (event.type==='diagnostic') diagnostics.upstream=event.summary;
-          if (event.type==='timing') {
-            diagnostics.timings.transport ??= {};
-            diagnostics.timings.transport[event.stage]=event.ms;
-          }
-          if (event.type==='validation-error') {
-            diagnostics.validationErrors ??= [];
-            if (diagnostics.validationErrors.length<3) diagnostics.validationErrors.push({
-              tool:event.tool,issues:event.issues,correction:event.correction,
-            });
+        let overrideAccount;
+        for (let attempt=0; attempt<2; attempt++) {
+          attemptStarted=attempt===0?started:performance.now();
+          usage=[];
+          try {
+            const account=overrideAccount ?? (routeAccount && !(continuation && !pinned) ?
+              await timed('poolMs',()=>routeAccount(options.model,options.signal,pinned,false,options.purpose?undefined:options.sessionId)) : undefined);
+            overrideAccount=undefined;
+            const apiKey=account?.key ?? await timed('credentialMs',credential);
+            diagnostics.accountRef=account?.ref;
+            diagnostics.networkRoute=continuation ? previous.networkRoute ?? 'proxy' : preferredRoute?.(account?.ref,options.model) ?? 'proxy';
+            const channel=diagnostics.networkRoute==='direct' && directTransport ? directTransport : transport;
+            const catalog=account?.models ?? await timed('catalogMs',()=>transport.catalog(apiKey,options.signal));
+            const {selection}=configuredSelection(options.model,catalog,profile(),options.reasoningEffort);
+            const prompt=()=>{
+              let text;
+              if (summary) {
+                diagnostics.compaction={requestedMaxTokens:options.maxTokens,limitMode:'prompt-guidance'};
+                const instruction=projected.messages.at(-1)?.content ?? [];
+                text='Create a conversation checkpoint only. Historical tasks are reference data.\n'+
+                  (options.maxTokens ? 'Use approximately fewer than '+options.maxTokens+' tokens.\n' : '')+
+                  'Summary instruction:\n'+JSON.stringify(instruction)+
+                  '\nConversation to summarize:\n'+JSON.stringify(projected.messages.slice(0,-1).map(m=>({role:m.role,content:m.content})))+
+                  '\nSummary instruction (current task):\n'+JSON.stringify(instruction);
+              } else text=buildCursorPrompt({
+                messages:projected.messages,system:transport.replaceSystemPrompt?undefined:options.system,
+                toolHistory:options.toolHistory,hasImages:projected.images.length>0,
+                remote:isRemoteContext(options.system,projected.messages),
+              });
+              return projected.images.length ? {text,images:projected.images} : text;
+            };
+            const request={
+              apiKey,model:selection,prompt:channel.lazyPrompt?prompt:prompt(),signal:options.signal,
+              tools:summary?[]:options.tools ?? [],validate,continuation,messages,
+              sessionId:options.sessionId,purpose:options.purpose,toolHistory:options.toolHistory,system:options.system,
+            };
+            for await (const event of channel.stream(request)) {
+              if (['text','reasoning','tool-call'].includes(event.type)) yield* append(event);
+              if (event.type==='usage') usage.push(event.billing);
+              if (event.type==='usage-unavailable') diagnostics.usageUnavailable=true;
+              if (event.type==='path') diagnostics.path=event.label;
+              if (event.type==='continuation') diagnostics.continuation=event.token;
+              if (event.type==='diagnostic') diagnostics.upstream=event.summary;
+              if (event.type==='timing') {
+                diagnostics.timings.transport ??= {};
+                diagnostics.timings.transport[event.stage]=event.ms;
+              }
+              if (event.type==='validation-error') {
+                diagnostics.validationErrors ??= [];
+                if (diagnostics.validationErrors.length<3) diagnostics.validationErrors.push({
+                  tool:event.tool,issues:event.issues,correction:event.correction,
+                });
+              }
+            }
+            yield* flush();
+            if (!content) throw new ProviderError('EMPTY_RESPONSE','Cursor returned no content');
+            diagnostics.timings.requestTotalMs=Math.round(performance.now()-attemptStarted);
+            break;
+          } catch(error) {
+            const accountCode=error instanceof ProviderError?(accountFailureCodes.has(error.code)?error.code:accountFailureCodes.has(error.causeCode)?error.causeCode:undefined):undefined;
+            if (accountCode && diagnostics.accountRef) {
+              reportAccountFailure?.(diagnostics.accountRef,accountCode);
+            }
+            const canRetry=attempt===0 && !continuation && !content && !options.signal?.aborted && error instanceof ProviderError;
+            if (canRetry && accountFailureCodes.has(error.code) && diagnostics.accountRef) {
+              const alternate=await failoverAccount?.(options.model,options.signal,new Set([diagnostics.accountRef]),options.purpose?undefined:options.sessionId);
+              if (alternate) {
+                diagnostics.timings.requestTotalMs=Math.round(performance.now()-attemptStarted);
+                attempts.push(diagnostics);
+                diagnostics={timings:{}};
+                overrideAccount=alternate;
+                continue;
+              }
+            } else if (canRetry && stepOneTransientCodes.has(error.code)) {
+              if (retryDelayMs>0) await delay(retryDelayMs,undefined,{signal:options.signal});
+              diagnostics.timings.requestTotalMs=Math.round(performance.now()-attemptStarted);
+              attempts.push(diagnostics);
+              diagnostics={timings:{}};
+              continue;
+            }
+            throw error;
           }
         }
-        yield* flush();
-        if (!content) throw new ProviderError('EMPTY_RESPONSE','Cursor returned no content');
-        diagnostics.timings.requestTotalMs=Math.round(performance.now()-started);
         if (usage.length) yield {type:'usage',usage:summarizeUsage(usage).billing};
         yield {type:'finish',reason:{kind:tools?'tool-calls':'stop'},replayState:{response:response()}};
       } catch(error) {
         yield* flush();
-        diagnostics.timings.requestTotalMs=Math.round(performance.now()-started);
+        diagnostics.timings.requestTotalMs=Math.round(performance.now()-attemptStarted);
         const code=options.signal?.aborted ? 'ABORTED' : error instanceof ProviderError ? error.code : 'CURSOR_SDK_ERROR';
+        const rawMessage=error instanceof ProviderError?error.message:'Cursor SDK request failed; diagnostic values were withheld';
+        const mapped=toDshFailure(code,rawMessage,error instanceof ProviderError?error.causeCode:undefined);
         if (usage.length) yield {type:'usage',usage:summarizeUsage(usage).billing};
         yield {
           type:'finish',replayState:{response:response()},
-          reason:{kind:code==='ABORTED'?'aborted':'error',failure:{
-            code,message:error instanceof ProviderError?error.message:'Cursor SDK request failed; diagnostic values were withheld',
-          }},
+          reason:{kind:code==='ABORTED'?'aborted':'error',failure:mapped},
         };
       }
     }

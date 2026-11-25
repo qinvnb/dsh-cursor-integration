@@ -11,9 +11,10 @@ export function mountUsage(ctx,accounts,pool,checks,paths,modelCatalog,namespace
   class UsageService extends TypertRemoteService {
     constructor() {super(ctx, 'cursorIntegrationUsage'); for (const initialize of initializers) initialize.call(this);}
     async getCompactionSettings(){return compactionSettings(ctx.get('configEditor')).get();}
-    async setCompactionThreshold(ratio){return compactionSettings(ctx.get('configEditor')).set(ratio);}
+    async setCompactionThreshold(ratio){return compactionSettings(ctx.get('configEditor'),ctx.root).set(ratio);}
     async getProxySettings(){return proxySettings(ctx.get('configEditor'),namespace).get();}
     async setProxyPort(port){return proxySettings(ctx.get('configEditor'),namespace).set(port);}
+    async setConnectionSettings(patch){return proxySettings(ctx.get('configEditor'),namespace).setConnection(patch);}
     async getModelCatalog({ref,draftKey}){return modelCatalog(ref,draftKey);}
     async getDisplayState(sessionId){return {...displayState(),sessionId,path:paths?.get(sessionId)??null,session:pool.session(sessionId)??null};}
     async getSnapshot() {
@@ -32,11 +33,12 @@ export function mountUsage(ctx,accounts,pool,checks,paths,modelCatalog,namespace
       const keys=accounts.list();
       if(id !== '@auto' && !keys.some(row=>row.id===id)) return {ok:false};
       pool.choose(id==='@auto'?undefined:id);
-      return {ok:true,active:keys.find(row=>row.id===pool.active())??null,keys};
+      const display=displayState();
+      return {ok:true,active:display.keys.find(row=>row.id===pool.active())??null,...display};
     }
   }
   const initializers = [];
-  for (const name of ['getCompactionSettings','setCompactionThreshold','getProxySettings','setProxyPort','getModelCatalog','getDisplayState','getSnapshot','getAllSnapshots','selectKey','getRouteChecks','startRouteChecks','stopRouteChecks']) Remote(UsageService.prototype[name], {kind:'method', name, static:false, private:false,
+  for (const name of ['getCompactionSettings','setCompactionThreshold','getProxySettings','setProxyPort','setConnectionSettings','getModelCatalog','getDisplayState','getSnapshot','getAllSnapshots','selectKey','getRouteChecks','startRouteChecks','stopRouteChecks']) Remote(UsageService.prototype[name], {kind:'method', name, static:false, private:false,
     addInitializer(fn) {initializers.push(fn);}});
   new UsageService();
 }

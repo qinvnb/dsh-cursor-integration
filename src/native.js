@@ -1,10 +1,10 @@
 import {randomUUID,createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import {ProviderError} from './provider.js';
-import {isRuntimeContext,latestRuntimeContext} from './request-context.js';
-export {isRuntimeContext} from './request-context.js';
+import {isRetryMessage,isRuntimeContext,latestRuntimeContext} from './request-context.js';
+export {isRetryMessage,isRuntimeContext} from './request-context.js';
 
-export const stableHistory = messages => messages.filter(message => !isRuntimeContext(message));
+export const stableHistory = messages => messages.filter(message => !isRuntimeContext(message) && !isRetryMessage(message));
 export const historyIdentity = messages => createHash('sha256').update(JSON.stringify(
   messages.map(m => ({role:m.role,content:m.content,toolCallId:m.toolCallId,isError:m.isError}))
 )).digest('hex');

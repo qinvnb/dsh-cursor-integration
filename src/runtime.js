@@ -6,7 +6,7 @@ import {NativeBridge,bridgeIdentity,stableHistory} from './native.js';
 import {newDirectory,publish,finishTurn,beginTurn,releaseCompleted,removeDirectory} from './checkpoints.js';
 import {sdkOutputReader} from './tool-output.js';
 import {isRemoteContext,buildCursorPrompt,latestRuntimeContext} from './request-context.js';
-import {sdkCreateDiagnostic,describeNetworkFailure} from './network.js';
+import {sdkCreateDiagnostic,describeNetworkFailure,describeRunFailure} from './network.js';
 import {normalizeSdkUsage} from './usage/normalize.js';
 
 export class RuntimeSession {
@@ -25,6 +25,10 @@ export class RuntimeSession {
     this.closed=false;
     this.completed=false;
     this.ended=false;
+    this.consecutiveRetries=0;
+    this.retryWindowStartedAt=undefined;
+    this.retryBudgetTimer=undefined;
+    this.retryBudgetExceeded=false;
     this.controller.signal.addEventListener('abort',()=>this.bridge.close(),{once:true});
     this.done=Promise.resolve();
   }
@@ -33,7 +37,10 @@ export class RuntimeSession {
     this.emit({type:'path',label:text});
   }
   emit(event) {
-    if (event.type==='tool-call') this.activity();
+    if (event.type==='tool-call') {
+      this.resetRetryBudget();
+      this.activity();
+    }
     this.queue.push(event);
     this.wake?.();
     this.wake=undefined;
@@ -65,6 +72,45 @@ export class RuntimeSession {
       this.controller.abort();
     },this.transport.timeoutMs);
   }
+  resetRetryBudget() {
+    this.consecutiveRetries=0;
+    this.retryWindowStartedAt=undefined;
+    clearTimeout(this.retryBudgetTimer);
+    this.retryBudgetTimer=undefined;
+  }
+  tripRetryBudget() {
+    if (this.closed || this.controller.signal.aborted) return;
+    this.retryBudgetExceeded=true;
+    clearTimeout(this.retryBudgetTimer);
+    this.retryBudgetTimer=undefined;
+    this.path('自动重连超时止损');
+    this.controller.abort();
+  }
+  onSdkRetry() {
+    if (this.closed || this.controller.signal.aborted) return;
+    this.consecutiveRetries++;
+    this.path('连接波动，正在第 '+this.consecutiveRetries+' 次自动重连…');
+    const limit=this.transport.maxConsecutiveSdkRetries;
+    if (Number.isFinite(limit)&&limit>0&&this.consecutiveRetries>limit) {
+      this.tripRetryBudget();
+      return;
+    }
+    const windowMs=this.transport.maxRetryWindowMs;
+    if (this.retryWindowStartedAt===undefined&&Number.isFinite(windowMs)&&windowMs>0) {
+      this.retryWindowStartedAt=this.transport.now();
+      this.retryBudgetTimer=setTimeout(()=>this.tripRetryBudget(),windowMs);
+      this.retryBudgetTimer.unref?.();
+    }
+  }
+  onSdkResponseHeaders(http,grpc) {
+    if (this.closed || this.controller.signal.aborted) return;
+    if (!Number.isInteger(http) || http < 200 || http >= 300) return;
+    if (grpc !== undefined && grpc !== 0) return;
+    clearTimeout(this.retryBudgetTimer);
+    this.retryBudgetTimer=undefined;
+    this.retryWindowStartedAt=undefined;
+    if (this.consecutiveRetries>0) this.path('已重新建立连接，等待模型响应…');
+  }
   async allocate() {
     if (this.transport.checkpointRoot && this.sessionId && !this.request.purpose) {
       try {
@@ -84,8 +130,8 @@ export class RuntimeSession {
       tools:this.bridge.tools.length?['mcp']:[],mcpServers:{},
       local:{
         cwd:this.directory,settingSources:[],customTools:this.bridge.customTools,
-        enableAgentRetries:this.transport.networkRoute==='proxy' &&
-          (r.purpose==='compaction'||this.transport.enableAgentRetries),
+        enableAgentRetries:Boolean(this.transport.enableAgentRetries ||
+          (this.transport.networkRoute==='proxy' && r.purpose==='compaction')),
         store:new sdk.JsonlLocalAgentStore(join(this.directory,'state')),
       },
     };
@@ -149,9 +195,9 @@ export class RuntimeSession {
       if (error instanceof ProviderError || this.controller.signal.aborted) throw error;
       const facts=sdkCreateDiagnostic(error);
       this.path((rebuilding?'重建失败 · ':'新建失败 · ')+facts.join(', '));
-      throw new ProviderError(facts.includes('HTTP 429')?'CURSOR_RATE_LIMITED':
+      throw Object.assign(new ProviderError(facts.includes('HTTP 429')?'CURSOR_RATE_LIMITED':
         describeNetworkFailure(error,'Cursor Agent.create')?.code ?? 'CURSOR_SDK_ERROR',
-      'Cursor Agent.create failed ('+facts.join(', ')+')');
+      'Cursor Agent.create failed ('+facts.join(', ')+')'), {cause:error});
     }
     timing('sdkCreateMs',start);
     this.path(rebuilding?'本轮按历史重建 · '+this.reason:'本轮新建会话');
@@ -183,11 +229,15 @@ export class RuntimeSession {
   launch() {
     this.ended=false;
     this.completed=false;
+    this.retryBudgetExceeded=false;
+    this.resetRetryBudget();
     this.bridge.beginRun();
     const diagnostics=this.transport.requestDiagnostics;
     const produce=turn=>this.transport.networkScope(()=>this.produce(turn));
-    this.done=(diagnostics ? diagnostics.run(this.sessionId,this.transport.networkRoute,produce) : produce()).finally(()=>{
+    const hooks={onRetry:()=>this.onSdkRetry(),onResponseHeaders:(http,grpc)=>this.onSdkResponseHeaders(http,grpc)};
+    this.done=(diagnostics ? diagnostics.run(this.sessionId,this.transport.networkRoute,produce,this.transport.agentHttpProtocol,hooks) : produce()).finally(()=>{
       clearTimeout(this.watchdog);
+      this.resetRetryBudget();
       this.detach?.();
     });
     // The host can be running a long tool before it awaits this producer again.
@@ -223,6 +273,7 @@ export class RuntimeSession {
         if (!first) {timing('firstSDKEventMs',start);first=true;}
         const visible=event.type==='thinking'&&event.text ||
           event.type==='assistant'&&event.message.content.some(part=>part.type==='text'&&part.text);
+        if (visible || event.type==='tool_call') this.resetRetryBudget();
         if (!content && visible) {
           content=true;timing('firstContentMs',start);
           diagnostics?.record('first_content', { ms: timings.firstContentMs });
@@ -253,27 +304,23 @@ export class RuntimeSession {
         eventCounts:counts,timings:{...timings,runWallMs:Math.round(performance.now()-start)},
       }});
       if (!reported && result.usage) this.reportUsage(result.usage);
-      if (result.status!=='finished') {
-        const detail=typeof result.error==='string'?result.error:JSON.stringify(result.error??'');
-        if (/system.?prompt/i.test(detail)&&/invalid.?argument|permission|not.allowed|not.enabled|access.denied/i.test(detail)) {
-          throw new ProviderError('SYSTEM_PROMPT_REJECTED','Custom system prompt rejected');
-        }
-        throw describeNetworkFailure(result.error,'Cursor model stream') ??
-          new ProviderError(result.status==='cancelled'?'ABORTED':'SDK_RUN_FAILED','SDK run did not complete');
-      }
+      if (result.status!=='finished') throw describeRunFailure(result.error,result.status);
       this.completed=true;
       diagnostics?.result('finished',phase,run,result);
     } catch(error) {
       this.emit({type:'diagnostic',summary:{
-        status:this.controller.signal.aborted?'cancelled':'error',eventCounts:counts,
+        status:this.retryBudgetExceeded?'error':this.controller.signal.aborted?'cancelled':'error',eventCounts:counts,
         timings:{...timings,runWallMs:Math.round(performance.now()-start)},
       }});
-      const failure=this.timedOut?new ProviderError('TIMEOUT','Cursor call timed out'):
-        describeNetworkFailure(error,'Cursor model request')??error;
-      diagnostics?.result(this.timedOut?'timeout':this.controller.signal.aborted?'cancelled':'error',phase,run,result,failure,error);
+      const failure=this.retryBudgetExceeded
+        ? new ProviderError('CURSOR_RETRY_EXHAUSTED','Cursor auto-reconnect stopped after reaching the retry budget without progress.',['retry_budget_exceeded'])
+        : this.timedOut?new ProviderError('TIMEOUT','Cursor call timed out'):
+          describeNetworkFailure(error,'Cursor model request')??error;
+      diagnostics?.result(this.retryBudgetExceeded?'error':this.timedOut?'timeout':this.controller.signal.aborted?'cancelled':'error',phase,run,result,failure,error);
       this.emit({type:'failure',error:failure});
     } finally {
       clearTimeout(this.watchdog);
+      this.resetRetryBudget();
       this.ended=true;
       this.detach?.();
       clearTimeout(this.recoveryTimer);
@@ -306,7 +353,7 @@ export class RuntimeSession {
   async dispose() {
     if (this.disposing) return this.disposing;
     this.disposing=(async()=>{
-      clearTimeout(this.watchdog);clearTimeout(this.idleTimer);clearTimeout(this.recoveryTimer);
+      clearTimeout(this.watchdog);clearTimeout(this.idleTimer);clearTimeout(this.recoveryTimer);this.resetRetryBudget();
       this.bridge.close();
       try {
         if (this.agent) await bounded(()=>this.agent[Symbol.asyncDispose](),{timeoutMs:5000});

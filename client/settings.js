@@ -14,6 +14,12 @@ const sheet=`
 .ci-settings label{display:grid;gap:6px;min-width:0}.ci-settings label>input:not([type=checkbox]){width:100%;min-width:0}.ci-settings .ci-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ci-settings .ci-inline>select{flex:1;min-width:120px}.ci-settings button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px}.ci-settings input:focus-visible,.ci-settings select:focus-visible,.ci-settings button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .ci-settings .ci-inline label{display:flex;align-items:center}.ci-settings input[type=checkbox]{accent-color:var(--dsw-alias-state-business-primary)}
 .ci-settings .ci-model{display:grid;gap:8px;padding:12px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,6px)}
+.ci-settings .ci-model-list{display:grid;gap:8px}
+.ci-settings .ci-disclosure{width:100%;justify-content:space-between;gap:12px;padding:0;border:0;background:transparent;text-align:left}
+.ci-settings .ci-disclosure>span{display:flex;align-items:center;gap:8px;min-width:0}
+.ci-settings .ci-disclosure>svg{flex:none;color:var(--dsw-alias-label-secondary)}
+.ci-settings .ci-disclosure[aria-expanded=true]>svg{transform:rotate(180deg)}
+.ci-settings .ci-model>.ci-disclosure>span{display:grid;gap:0;overflow-wrap:anywhere}
 .ci-settings small{color:var(--dsw-alias-label-tertiary)}.ci-settings button{cursor:pointer}.ci-settings button:disabled{opacity:.5;cursor:default}
 .ci-settings button:hover:enabled{background:var(--dsw-alias-interactive-bg-hover)}
 .ci-settings .ci-primary{background:var(--dsw-alias-state-business-primary);color:white}.ci-settings .ci-primary:hover:enabled{filter:brightness(.95);background:var(--dsw-alias-state-business-primary)}.ci-settings .ci-error{color:var(--dsw-alias-state-error-primary)}
@@ -54,53 +60,83 @@ export function CompactionControl({api}) {
     finally{setBusy(false);}
   }
   return h('section',{className:'ci-section'},heading('compress','DSH 自动压缩'),
-    h('label',null,h('span',null,'压缩触发比例（0～1）'),h('input',{type:'number',min:0.01,max:1,step:0.01,disabled,value,placeholder:snapshot?'不可用':'读取中…',onChange:event=>setDraft(event.target.value),onKeyDown:event=>{if(event.key==='Enter'){event.preventDefault();void save();}}})),
+    h('label',null,h('span',null,'压缩触发比例（0～1）'),h('input',{type:'number',min:0.01,max:1,step:0.01,disabled,value,placeholder:snapshot?'不可用':'读取中…',onChange:event=>{setDraft(event.target.value);setNotice('');},onKeyDown:event=>{if(event.key==='Enter'){event.preventDefault();void save();}}})),
     note('直接修改 DSH 原生策略，作用于使用该策略的所有模型；0.7 表示达到容量的 70% 时触发，实际还受输出预留和安全余量限制。模型专属策略如有覆盖，仍以覆盖值为准。'),
     h('button',{type:'button',disabled,onClick:save},h(Icon,{name:'check'}),busy?'保存中…':'保存压缩阈值'),
     (notice||snapshot?.error)?h('p',{className:'ci-note',role:'status'},notice||snapshot.error):null);
 }
-export function ProxyPortControl({api}) {
+export function ConnectionControl({api}) {
   const [snapshot,setSnapshot]=React.useState(null);
-  const [draft,setDraft]=React.useState(null);
+  const [portDraft,setPortDraft]=React.useState(null);
+  const [protocolDraft,setProtocolDraft]=React.useState(null);
+  const [retriesDraft,setRetriesDraft]=React.useState(null);
   const [notice,setNotice]=React.useState('');
   const [busy,setBusy]=React.useState(false);
+  const [menuOpen,setMenuOpen]=React.useState(false);
+  const protocolButton=React.useRef(null);
   React.useEffect(()=>{
     let alive=true;
     api.getProxySettings().then(reply=>{
-      if(alive)setSnapshot(reply.ok?reply.value:{available:false,error:'读取 DSH 代理配置失败。'});
+      if(alive)setSnapshot(reply.ok?reply.value:{available:false,error:'读取 DSH 连接配置失败。'});
     }).catch(()=>{if(alive)setSnapshot({available:false,error:'无法连接 DSH 配置服务。'});});
     return ()=>{alive=false;};
   },[api]);
 
   const disabled=busy||!snapshot?.available;
-  const canSave=!disabled&&draft!==null&&draft.trim()!==snapshot.port;
+  const protocols=[{id:'http2',label:'HTTP/2（默认）'},{id:'http1',label:'HTTP/1.1（SSE）'}];
+  const protocol=protocolDraft??snapshot?.agentHttpProtocol;
+  const retries=retriesDraft??Boolean(snapshot?.proxyAgentRetries);
+  const portChanged=portDraft!==null&&portDraft.trim()!==snapshot?.port;
+  const protocolChanged=protocolDraft!==null&&protocolDraft!==snapshot?.agentHttpProtocol;
+  const retriesChanged=retriesDraft!==null&&retriesDraft!==Boolean(snapshot?.proxyAgentRetries);
+  const canSave=!disabled&&(portChanged||protocolChanged||retriesChanged);
   async function save(){
     if(!canSave)return;
     setBusy(true);setNotice('');
     try{
-      const reply=await api.setProxyPort(draft);
+      const reply=await api.setConnectionSettings({
+        ...(portChanged?{port:portDraft}:{}),
+        ...(protocolChanged?{agentHttpProtocol:protocolDraft}:{}),
+        ...(retriesChanged?{proxyAgentRetries:retriesDraft}:{}),
+      });
       if(!reply.ok)throw Error();
       setSnapshot(reply.value);
       if(!reply.value.error){
-        setDraft(null);
-        setNotice('代理端口已保存。');
+        setPortDraft(null);setProtocolDraft(null);setRetriesDraft(null);
+        setNotice('连接设置已保存。');
       }
-    }catch{setNotice('保存代理端口失败，无法连接 DSH 配置服务。');}
+    }catch{setNotice('保存连接设置失败，无法连接 DSH 配置服务。');}
     finally{setBusy(false);}
   }
   return h('div',{className:'ci-section'},
-    h('label',null,h('span',null,'Cursor SDK 代理端口'),h('input',{
-      inputMode:'numeric',disabled,placeholder:'7890',value:draft??snapshot?.port??'',
-      onChange:event=>{setDraft(event.target.value);setNotice('');},
-      onKeyDown:event=>{if(event.key==='Enter'){event.preventDefault();void save();}},
-    })),
-    note('填写本机 HTTP 或混合代理端口，留空直连。保存后 DSH 会重新加载 Cursor 集成。'),
+    h('div',{className:'ci-grid'},
+      h('label',null,h('span',null,'Cursor SDK 代理端口'),h('input',{
+        inputMode:'numeric',disabled,placeholder:'7890',value:portDraft??snapshot?.port??'',
+        onChange:event=>{setPortDraft(event.target.value);setNotice('');},
+        onKeyDown:event=>{if(event.key==='Enter'){event.preventDefault();void save();}},
+      })),
+      h('label',null,h('span',null,'Cursor SDK 流式协议'),
+        h(Menu,{items:protocols,open:menuOpen,onClose:()=>setMenuOpen(false),selectedId:protocol,
+          align:'start',portal:true,
+          onSelect:id=>{setProtocolDraft(id);setMenuOpen(false);setNotice('');protocolButton.current?.focus({preventScroll:true});},
+          anchor:h('button',{ref:protocolButton,type:'button',className:'ci-account-select',disabled,
+            'aria-label':'Cursor SDK 流式协议','aria-haspopup':'menu','aria-expanded':menuOpen,
+            onClick:()=>setMenuOpen(!menuOpen)},
+            h('span',null,protocols.find(item=>item.id===protocol)?.label??(snapshot?'不可用':'读取中…')),
+            h(IconChevronDownOutlineRegular,{'aria-hidden':true})),
+        }))),
+    h('div',{className:'ci-inline'},h('label',null,h('input',{
+      type:'checkbox',disabled,checked:retries,
+      onChange:event=>{setRetriesDraft(event.target.checked);setNotice('');},
+    }),h('span',null,'启用 Cursor SDK 断流自动重连（代理与直连生效）'))),
+    note('代理端口留空时直连；开启断流自动重连后最多连续重连 3 次且无进展 60 秒止损，不影响已完成工具的防重放保护。保存会重新加载 Cursor 集成，请在当前请求结束后切换。'),
     h('div',{className:'ci-inline'},h('button',{type:'button',disabled:!canSave,onClick:save},
-      h(Icon,{name:busy?'refresh':'check'}),busy?'保存中…':'保存代理端口')),
+      h(Icon,{name:busy?'refresh':'check'}),busy?'保存中…':'保存连接设置')),
     (notice||snapshot?.error)?h('p',{className:'ci-note',role:'status'},notice||snapshot.error):null,
   );
 }
 export function mountSettings(ctx) {
+  const sectionId='cursor-integration-api';
   function Panel({scope,view,compactionApi}) {
     const snapshot=React.useSyncExternalStore(fn=>scope.subscribe(fn),()=>scope.getSnapshot());
     const [draft,setDraft]=React.useState(null);
@@ -109,9 +145,12 @@ export function mountSettings(ctx) {
     const [busy,setBusy]=React.useState(false);
     const [catalog,setCatalog]=React.useState([]);
     const [query,setQuery]=React.useState('');
+    const [modelsOpen,setModelsOpen]=React.useState(false);
+    const [expandedModel,setExpandedModel]=React.useState(null);
     const [selected,setSelected]=React.useState(null);
     const [accountMenuOpen,setAccountMenuOpen]=React.useState(false);
     const accountButton=React.useRef(null);
+    const modelsId=React.useId();
     if(view==='summary')return 'Cursor 集成';
     const saved=snapshot.value?.providers?.cursor??{};
     const config=draft??{
@@ -149,6 +188,7 @@ export function mountSettings(ctx) {
         if(!model.id.trim()||ids.has(model.id.trim())){setNotice('模型 ID 不能为空或重复。');return;}
         ids.add(model.id.trim());
         if(model.contextWindow!==undefined&&(!Number.isSafeInteger(model.contextWindow)||model.contextWindow<1)){
+          setModelsOpen(true);setExpandedModel(model.id);
           setNotice('上下文容量须为正整数 Token 数。');return;
         }
       }
@@ -201,9 +241,14 @@ export function mountSettings(ctx) {
       field('后台用量刷新间隔（分钟）',{type:'number',min:1,max:1440,value:config.usageRefreshMinutes??5,
         onChange:event=>change({usageRefreshMinutes:event.target.value})}),
       note('用量在后台定时刷新。'),
-      compactionApi?h(ProxyPortControl,{api:compactionApi}):null),
+      compactionApi?h(ConnectionControl,{api:compactionApi}):null),
       compactionApi?h(CompactionControl,{api:compactionApi}):note('当前 DSH 未提供原生压缩配置。'),
-      h('section',{className:'ci-section'},heading('model','模型目录'),
+      h('section',{className:'ci-section'},
+      h('h3',null,h('button',{type:'button',className:'ci-disclosure','aria-expanded':modelsOpen,'aria-controls':modelsId,
+        onClick:()=>setModelsOpen(!modelsOpen)},
+        h('span',null,h(Icon,{name:'model'}),'模型目录',h('small',null,config.models?'已配置 '+config.models.length+' 个':'跟随账号全部模型')),
+        h(IconChevronDownOutlineRegular,{'aria-hidden':true}))),
+      h('div',{id:modelsId,hidden:!modelsOpen,className:modelsOpen?'ci-model-list':undefined},...(modelsOpen?[
       h('div',{className:'ci-inline'},
         h('button',{type:'button',disabled:disabled||!compactionApi,onClick:discover},h(Icon,{name:'refresh'}),'获取模型目录'),
         h('button',{type:'button',disabled,onClick:()=>change({models:undefined})},'跟随账号全部模型')),
@@ -213,24 +258,34 @@ export function mountSettings(ctx) {
           h('span',null,row.name??row.id),
           modelCapabilities(row),
           h('button',{type:'button',disabled,onClick:()=>change({models:[...(config.models??[]),{id:row.id,name:'Cursor '+(row.name??row.id)}]})},'添加'))),
-      ...(config.models??[]).filter(row=>(row.id+' '+(row.name??'')).toLowerCase().includes(query.toLowerCase())).map(row=>
-        h('div',{key:row.id,className:'ci-model'},
-          h('div',{className:'ci-inline'},h('strong',null,row.id),
-            h('button',{type:'button',disabled,onClick:()=>change({models:config.models.filter(m=>m.id!==row.id)})},'移除')),
+      ...(config.models??[]).filter(row=>(row.id+' '+(row.name??'')).toLowerCase().includes(query.toLowerCase())).map(row=>{
+        const expanded=expandedModel===row.id;
+        const editorId=modelsId+'-'+encodeURIComponent(row.id);
+        const discovered=expanded?catalog.find(model=>model.id===row.id):undefined;
+        return h('div',{key:row.id,className:'ci-model'},
+          h('button',{type:'button',className:'ci-disclosure','aria-expanded':expanded,'aria-controls':editorId,
+            onClick:()=>setExpandedModel(expanded?null:row.id)},
+            h('span',null,h('strong',null,row.name||row.id),row.name&&row.name!==row.id?h('small',null,row.id):null),
+            h(IconChevronDownOutlineRegular,{'aria-hidden':true})),
+          h('div',{id:editorId,hidden:!expanded,className:expanded?'ci-model-list':undefined},...(expanded?[
           field('显示名称',{value:row.name??'',onChange:event=>editModel(row.id,{name:event.target.value})}),
           field('上下文容量（Token）',{type:'number',min:1,value:row.contextWindow??'',
             onChange:event=>editModel(row.id,{contextWindow:event.target.value?Number(event.target.value):undefined})}),
           h('small',null,row.contextWindow?'当前使用模型手动配置的容量。':config.contextWindow
             ?'继承全局容量 '+config.contextWindow.toLocaleString()+' Token。':'留空时使用 Cursor 目录给出的容量。'),
-          catalog.some(model=>model.id===row.id)?modelCapabilities(catalog.find(model=>model.id===row.id)):null,
+          discovered?modelCapabilities(discovered):null,
           h('div',{className:'ci-inline'},
             ...['text','image'].map(type=>h('label',{key:type},
               h('input',{type:'checkbox',disabled:disabled||type==='text',checked:type==='text'||row.inputModalities?.includes('image')===true,
                 onChange:event=>editModel(row.id,{inputModalities:event.target.checked?['text','image']:['text']})}),
               type==='text'?'文字':'图片')),
             h('label',null,h('input',{type:'checkbox',disabled,checked:row.fast===true,onChange:event=>editModel(row.id,{fast:event.target.checked})}),'Fast')),
-          !row.inputModalities?h('small',null,'图片能力未声明，当前按文字处理。'):null)),
-      !config.models?note('未指定模型列表时，跟随账号可用的全部模型。'):null),
+          !row.inputModalities?h('small',null,'图片能力未声明，当前按文字处理。'):null,
+          h('div',{className:'ci-inline'},h('button',{type:'button',disabled,
+            onClick:()=>{change({models:config.models.filter(model=>model.id!==row.id)});setExpandedModel(null);}},'移除')),
+          ]:[])));
+      }),
+      ]:[]))),
       notice?h('p',{className:'ci-note ci-notice',role:'status'},h(Icon,{name:/失败|须|请输入|不能为空/.test(notice)?'warning':notice==='配置已保存。'?'check':'info'}),notice):null,
       h('footer',{className:'ci-inline ci-footer'},
         h('button',{type:'submit',className:'ci-primary',disabled},h(Icon,{name:busy?'refresh':'check'}),busy?'处理中…':'保存并启用此账号'),
@@ -242,12 +297,17 @@ export function mountSettings(ctx) {
       const bundle=child.slots.inject('plugins.bundle.config',()=>child.slots.register({
         name:'plugins.bundle.config',key:'dsh-cursor-integration',
       },props=>h(Panel,{...props,scope:forms.get('cursor-integration'),compactionApi:child.remote.cursorIntegrationUsage})));
-      let section;
-      try {section=child.slots.inject('settings.section',()=>child.slots.register({
-        name:'settings.section',id:'cursor-integration-api',order:24,label:()=> 'Cursor 集成',icon:()=>h(Icon,{name:'model'}),
-      },props=>h(Panel,{...props,scope:forms.get('cursor-integration'),compactionApi:child.remote.cursorIntegrationUsage,view:'editor'})));}
-      catch(error){bundle();throw error;}
-      return ()=>{section();bundle();};
+      let section, icon;
+      try {
+        section=child.slots.inject('settings.section',()=>child.slots.register({
+          name:'settings.section',id:sectionId,order:24,label:()=> 'Cursor 集成',
+        },props=>h(Panel,{...props,scope:forms.get('cursor-integration'),compactionApi:child.remote.cursorIntegrationUsage,view:'editor'})));
+        icon=child.slots.inject('settings.section.icon',()=>child.slots.register({
+          name:'settings.section.icon',id:sectionId,
+        },({size})=>h(Icon,{name:'model',size})));
+      }
+      catch(error){section?.();bundle();throw error;}
+      return ()=>{icon();section();bundle();};
     }));
   });
 }

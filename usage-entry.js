@@ -6,6 +6,7 @@ import {remoteInfo} from './src/usage/remote.js';
 import {createUsageStore} from './src/usage/ui-store.js';
 import {styles} from './src/usage/styles.js';
 import {openUsagePage} from './src/usage/switch.js';
+import {canRetryTurn,submitSessionRetry} from './src/usage/retry.js';
 const h = React.createElement;
 const money = n => n === null || n === undefined ? '未提供' : '$' + n.toFixed(2);
 const number = n => typeof n === 'number' ? n.toLocaleString('zh-CN') : '—';
@@ -21,27 +22,44 @@ function Ring({item, size=14}) {
     value>0?h('circle',{cx:8,cy:8,r:5.5,fill:'none',stroke:'currentColor',strokeWidth:1.5,strokeLinecap:'round',pathLength:100,strokeDasharray:`${value} 100`,transform:'rotate(-90 8 8)'}):null);
 }
 
-export const inject = ['slots', 'remote'];
+export const inject = ['slots', 'remote', 'sessions'];
 export async function apply(ctx) {
   await ctx.remote.$mount(remoteInfo);
   let store, api;
   const useUsage = () => React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   function Dock({useProjection,useSession,useInput,sessionId} = {}) {
     const running=useSession?.(s=>s.running)??false;
+    const subagent=useSession?.(s=>s.subagent)??null;
+    const removed=useSession?.(s=>s.removed)??false;
+    const openState=useSession?.(s=>s.openState)??'open';
+    const pendingSubmissions=useSession?.(s=>s.pendingSubmissions?.length??0)??0;
+    const retryableFailure=useProjection?.('conversationContinuation')??null;
+    const inbox=useProjection?.('inbox');
+    const hasQueued=(inbox?.['next-turn']?.length??0)>0||Boolean(inbox?.['next-step']?.some(m=>m?.source?.kind==='user'));
     const inputModel=useInput?.(s=>typeof s.model==='string'?s.model:s.model?.id);
     const [display,setDisplay]=React.useState(null);
+    const displayRevision=React.useRef(0);
     const modelRoute=useProjection?.('cursorContextRoute');
     const compaction=useProjection?.('cursorCompactionStatus');
     const {data, busy, switching, error} = useUsage();
     const [navigationError,setNavigationError] = React.useState('');
+    const [retrying,setRetrying]=React.useState(false);
+    const [retryError,setRetryError]=React.useState('');
+    React.useEffect(()=>{setRetrying(false);setRetryError('');},[sessionId,retryableFailure,running]);
     const model=(running?modelRoute?.model:inputModel||modelRoute?.model)?.split('@')[0];
     React.useEffect(()=>{
       let alive=true,timer;
-      async function read(){try{const r=await api.getDisplayState(sessionId??'');if(alive&&r.ok)setDisplay(r.value);}finally{if(alive)timer=setTimeout(()=>{read().catch(()=>{});},running?3000:30000);}}
+      async function read(){
+        const revision=displayRevision.current;
+        try{const r=await api.getDisplayState(sessionId??'');if(alive&&r.ok&&revision===displayRevision.current)setDisplay(r.value);}
+        finally{if(alive)timer=setTimeout(()=>{read().catch(()=>{});},running?3000:30000);}
+      }
       read().catch(()=>{});return ()=>{alive=false;clearTimeout(timer);};
     },[sessionId,model,running,switching]);
     const ref=running ? (Number.isFinite(modelRoute?.started) && display?.session?.time>=modelRoute.started && display.session.model===model?display.session.ref:modelRoute?.accountRef) : display?.defaults?.[model]??display?.fallback;
     const displayed=display?.keys.find(row=>row.id===ref);
+    const accountChoices=display?.keys??[];
+    const manual=Boolean(display?.manual);
     const account=displayed?.account,info=account?.data;
     const stale = Boolean(error || account?.error);
     const identity = displayed?.label || (running?'等待本轮账号记录':'读取默认账号…');
@@ -51,6 +69,13 @@ export async function apply(ctx) {
       data?.local?.today ? `DSH 今天：${number(data.local.today.calls)} 个调用步骤，已校准 ${number(data.local.today.totalTokens)} Token（${data.local.today.reportedCalls} 条用量记录）` : '',
       account?.fetchedAt ? `更新：${date(account.fetchedAt)}` : '', '点击查看用量明细'].filter(Boolean).join('\n');
     const cursor=modelRoute?.provider==='cursor';
+    const canRetry=canRetryTurn({cursor,retryableFailure,running,removed,openState,pendingSubmissions,subagent,hasQueued});
+    const onRetry=async()=>{
+      if(!canRetry||retrying)return;
+      setRetrying(true);setRetryError('');
+      try{const result=await submitSessionRetry(ctx,sessionId);if(!result.ok)setRetryError(result.message);}
+      finally{setRetrying(false);}
+    };
     const checkpoint=display?.sessionId===sessionId?display.path:null;
     const checkpointBusy=checkpoint?.startsWith('正在');
     const checkpointFailed=checkpoint?.includes('失败');
@@ -61,13 +86,17 @@ export async function apply(ctx) {
     const compressionText=compressionBusy?'正在生成摘要，请稍候':
       compressionCancelled?'已取消压缩':compressionFailed?'压缩失败 · '+(compaction.error||'请稍后重试'):
       compaction?.summarized?'摘要压缩已完成 · '+date(compaction.summarized):'尚无成功的摘要压缩记录';
-    const statusRow=(label,icon,text,tone,extra)=>h('span',{className:'cu-status-row cu-status-'+tone,role:'status'},
+    const statusRow=(label,icon,text,tone,extra,action)=>h('span',{className:'cu-status-row cu-status-'+tone,role:'status'},
       h(Icon,{name:icon,className:'cu-status-icon'}),
       h('span',{className:'cu-status-label'},label),
       h('span',{className:'cu-status-text'},text),
-      extra?h('span',{className:'cu-status-detail'},extra):null);
+      extra?h('span',{className:'cu-status-detail'},extra):null,action||null);
+    const retryAction=canRetry?h('span',{className:'cu-retry-wrap'},
+      h('button',{type:'button',className:'cu-retry-btn',disabled:retrying,'aria-busy':retrying,onClick:onRetry},
+        h(Icon,{name:'refresh'}),retrying?'正在重试…':'重试'),
+      retryError?h('span',{className:'cu-retry-error',role:'alert'},retryError):null):null;
     return h('span', {className: 'cu-dock', 'aria-label':'Cursor 已用额度'}, h('style', null, styles),
-      cursor && statusRow('检查点',checkpointIcon,checkpoint??'等待本轮请求',checkpointFailed?'error':checkpointBusy?'busy':'normal'),
+      cursor && statusRow('检查点',checkpointIcon,checkpoint??'等待本轮请求',checkpointFailed?'error':checkpointBusy?'busy':'normal',null,retryAction),
       (cursor||compressionBusy||compressionFailed||compaction?.summarized) && statusRow('上下文压缩',compressionFailed&&!compressionCancelled?'warning':compressionBusy?'refresh':'compress',
         compressionText,compressionFailed&&!compressionCancelled?'error':compressionBusy?'busy':'normal',
         compaction?.pruned?'工具输出最近裁剪于 '+date(compaction.pruned):null),
@@ -75,12 +104,15 @@ export async function apply(ctx) {
       h(Popup,{label:'查看和切换 Cursor 账号',trigger:[h(Icon,{key:'icon',name:'account'}),h('span',{key:'name',className:'cu-key-label'},switching?'切换中…':identity)]},close=>h(React.Fragment,null,
         h('strong',{className:'ci-popup-heading'},h(Icon,{name:'account'}),'当前账号'),
         h('div',{className:'ci-popup-row'},h('span',null,'本轮使用'),h('span',null,identity)),
-        h('div',{className:'ci-popup-row'},h('span',null,'选择方式'),h('span',null,data?.pool?.manual?'手动指定':'自动选择')),
+        h('div',{className:'ci-popup-row'},h('span',null,'选择方式'),h('span',null,manual?'手动指定':'自动选择')),
         h('div',{className:'ci-popup-options','aria-label':'选择下一轮使用的账号'},
-          ...[{id:'@auto',label:'自动选账号'},...(data?.keys??[])].map(row=>{
-            const selected=row.id==='@auto'?!data?.pool?.manual:Boolean(data?.pool?.manual&&row.id===data?.active?.id);
-            return h('button',{key:row.id,type:'button',className:'ci-popup-option',disabled:switching||!data?.keys?.length,
-              'aria-pressed':selected,onClick:async()=>{if(await store.selectKey(row.id))close();}},
+          ...[{id:'@auto',label:'自动选账号'},...accountChoices].map(row=>{
+            const selected=row.id==='@auto'?!manual:manual&&row.id===display?.fallback;
+            return h('button',{key:row.id,type:'button',className:'ci-popup-option',disabled:switching||!accountChoices.length,
+              'aria-pressed':selected,onClick:async()=>{
+                const selection=await store.selectKey(row.id);
+                if(selection){displayRevision.current++;setDisplay(current=>({...current,...selection}));close();}
+              }},
               h(Icon,{name:row.id==='@auto'?'refresh':'account'}),h('span',null,row.label),selected?h(Icon,{name:'check'}):null);
           })),
         error?h('div',{className:'ci-popup-note',role:'alert'},error):null,
@@ -213,7 +245,8 @@ export async function apply(ctx) {
     api = child.remote.cursorIntegrationUsage;
     store = createUsageStore(api);
     child.effect(() => () => store.dispose());
-    child.slots.inject('settings.section', () => child.slots.register({name: 'settings.section', id: 'cursor-integration-usage', order: 25, label: () => 'Cursor 用量', icon: () => h(Icon,{name:'chart'})}, Panel));
+    child.slots.inject('settings.section', () => child.slots.register({name: 'settings.section', id: 'cursor-integration-usage', order: 25, label: () => 'Cursor 用量'}, Panel));
+    child.slots.inject('settings.section.icon', () => child.slots.register({name: 'settings.section.icon', id: 'cursor-integration-usage'}, ({size}) => h(Icon,{name:'chart',size})));
     child.slots.inject('conversation.composer.dock', () => child.slots.register({name:'conversation.composer.dock', id:'cursor-integration-usage', order:10}, Dock));
   });
 }

@@ -1,5 +1,7 @@
+import {editDesktopCompaction,isPendingCompactionConflict} from './compaction-profile.js';
+
 // Ordinary (non-volatile) native configuration must go through ConfigEditor, not SettingsForms.
-export function compactionSettings(editor) {
+export function compactionSettings(editor, root) {
   const locate=()=>editor?.configuration().find(row=>row.entry.options.id==='compaction-basic');
   function get(){
     const row=locate();
@@ -16,7 +18,24 @@ export function compactionSettings(editor) {
     try{
       await editor.edit(row.entry,current=>({...current,thresholdRatio:ratio}));
       return get();
-    }catch{return {...get(),error:'保存失败；请确认阈值高于保留比例，且配置允许写入。'};}
+    }catch(error){
+      if(root&&isPendingCompactionConflict(error)){
+        try{
+          await editDesktopCompaction(editor,root,ratio);
+          return get();
+        }catch(error){return {...get(),error:saveError(error)};}
+      }
+      return {...get(),error:saveError(error)};
+    }
   }
   return {get,set};
+}
+
+function saveError(error){
+  const message=String(error?.message??'');
+  if(/retainRatio \([\d.]+\) must be less than the resolved thresholdRatio/.test(message))return '压缩阈值须高于当前的保留比例。';
+  if(/waiting for the writer lock/.test(message))return 'DSH 配置正在被修改，请稍后重试。';
+  if(/profile changed during save/.test(message))return 'DSH 配置刚刚发生变化，请重新打开设置后重试。';
+  if(/another configuration|overridden by a home patch/.test(message))return '其他配置层覆盖了自动压缩阈值。';
+  return 'DSH 未能保存压缩阈值，请重新打开设置后重试。';
 }

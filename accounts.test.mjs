@@ -6,7 +6,7 @@ import {webcrypto} from 'node:crypto';
 
 test('add, save and switch accounts without overwriting an existing key or storing secrets in settings',async()=>{
  const hooks=[];let cursor=0,renderPanel,registered=0;const writes=[];
- const React={createElement:(type,props,...children)=>({type,props:props??{},children:children.flat(Infinity)}),useRef:()=>({current:null}),useState:initial=>{const i=cursor++;if(!(i in hooks))hooks[i]=initial;return [hooks[i],v=>{hooks[i]=typeof v==='function'?v(hooks[i]):v;}];},useEffect:()=>{},useSyncExternalStore:(_sub,get)=>get()};
+ const React={createElement:(type,props,...children)=>({type,props:props??{},children:children.flat(Infinity)}),useRef:()=>({current:null}),useId:()=>'test-models',useState:initial=>{const i=cursor++;if(!(i in hooks))hooks[i]=initial;return [hooks[i],v=>{hooks[i]=typeof v==='function'?v(hooks[i]):v;}];},useEffect:()=>{},useSyncExternalStore:(_sub,get)=>get()};
  const state={status:'ready',writable:true,revision:1,value:{providers:{cursor:{apiKeyEnv:'CURSOR_API_KEY'}}}};
  const scope={getSnapshot:()=>state,subscribe:()=>()=>{},async mutate(ops){for(const op of ops){let at=state.value;for(const key of op.path.slice(0,-1))at=at[key]??=( {} );if(op.op==='unset')delete at[op.path.at(-1)];else at[op.path.at(-1)]=op.value;}state.revision++;return true;}};
  const slots={inject:(_name,fn)=>fn(),register:(spec,component)=>{if(spec.name==='settings.section' && spec.id==='cursor-integration-api'){renderPanel=component({view:'editor',useRemoteAccess:()=>true}).type;registered++;}return ()=>{};}};
@@ -31,7 +31,7 @@ test('add, save and switch accounts without overwriting an existing key or stori
  assert.equal(state.value.providers.cursor.apiKeyEnv,'CURSOR_API_KEY');assert.equal(writes.length,1);
 });
 
-test('settings refreshes keep one registration and release both seats when the namespace disappears',async()=>{
+test('settings refreshes keep one registration and release all slots when the namespace disappears',async()=>{
  const active=new Set();let refresh,stop;
  const React={createElement:(type,props,...children)=>({type,props,children})};
  const slots={inject:(_name,fn)=>fn(),register:(spec)=>{
@@ -51,6 +51,8 @@ test('settings refreshes keep one registration and release both seats when the n
  await plugin.apply(ctx);
  for(let i=0;i<10;i++)refresh(true);
  assert.ok(active.has('plugins.bundle.config:dsh-cursor-integration'));
+ assert.ok(active.has('settings.section.icon:cursor-integration-api'));
  refresh(false);assert.ok(!active.has('plugins.bundle.config:dsh-cursor-integration'));assert.ok(!active.has('settings.section:cursor-integration-api'));
+ assert.ok(!active.has('settings.section.icon:cursor-integration-api'));
  refresh(true);stop();assert.ok(!active.has('plugins.bundle.config:dsh-cursor-integration'));
 });

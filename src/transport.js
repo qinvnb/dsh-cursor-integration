@@ -15,7 +15,10 @@ export class CursorTransport {
     this.now=options.now??Date.now;
     this.networkScope=options.networkScope??(action=>action());
     this.networkRoute=options.networkScope?'proxy':'direct';
+    this.agentHttpProtocol=options.agentHttpProtocol;
     this.enableAgentRetries=options.enableAgentRetries??false;
+    this.maxConsecutiveSdkRetries=options.maxConsecutiveSdkRetries??3;
+    this.maxRetryWindowMs=options.maxRetryWindowMs??60000;
     this.requestDiagnostics=options.requestDiagnostics;
     this.replaceSystemPrompt=options.replaceSystemPrompt??false;
     this.checkpointRoot=options.checkpointRoot;
@@ -141,6 +144,7 @@ export class CursorTransport {
     session.token=undefined;
     this.submittedRequest(request.continuation,request,session);
     session.bridge.resume(request.messages,ids);
+    session.resetRetryBudget();
     session.activity();
     return session;
   }
@@ -240,12 +244,17 @@ export class CursorTransport {
         break;
       }
     } catch(error) {
-      let failure=session.timedOut?new ProviderError('TIMEOUT','Cursor call timed out'):error;
+      let failure=session.retryBudgetExceeded
+        ? new ProviderError('CURSOR_RETRY_EXHAUSTED','Cursor auto-reconnect stopped after reaching the retry budget without progress.',['retry_budget_exceeded'])
+        : session.timedOut?new ProviderError('TIMEOUT','Cursor call timed out'):error;
       if (session.submission) {
         const code=failure instanceof ProviderError?failure.code:'CURSOR_SDK_ERROR';
+        const facts=failure instanceof ProviderError?failure.facts:undefined;
+        const detail=facts?.length?code+': '+facts.join(', '):code;
         if (code!=='ABORTED') failure=new ProviderError(code==='TIMEOUT'?'CONTINUATION_TIMEOUT':'CONTINUATION_FAILED',
           code==='INVALID_ARGUMENTS'?'工具参数连续两次纠正后仍无效（INVALID_ARGUMENTS）。已完成工具未重复执行，可发送新消息继续。':
-          'Cursor continuation failed ('+code+'); tool results were already submitted. Continue from saved history; completed tools were not replayed.');
+          'Cursor continuation failed ('+detail+'); tool results were already submitted. Continue from saved history; completed tools were not replayed.',
+          facts,code);
         session.submission.entry.failure=failure;
         session.submission.entry.until=this.now()+Math.max(this.timeoutMs,60000);
       }

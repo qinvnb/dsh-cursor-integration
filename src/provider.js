@@ -1,8 +1,10 @@
 export class ProviderError extends Error {
-  constructor(code, message) {
+  constructor(code, message, facts, causeCode) {
     super(message);
     this.name = 'ProviderError';
     this.code = code;
+    if (Array.isArray(facts) && facts.length) this.facts = [...facts];
+    if (causeCode !== undefined) this.causeCode = causeCode;
   }
 }
 

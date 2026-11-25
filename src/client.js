@@ -20039,6 +20039,12 @@ var catalogRequest = {
 };
 var proxyPortCodec = { mode: "strict", typeSymbol: "string", create: () => external_exports.string(), jsonSchema: { type: "string" } };
 var proxySettingsResult = { mode: "strict", typeSymbol: "dsh-cursor-integration#ProxySettings", create: () => external_exports.json(), jsonSchema: {} };
+var connectionPatch = {
+  mode: "strict",
+  typeSymbol: "dsh-cursor-integration#ConnectionSettingsPatch",
+  create: () => external_exports.object({ port: external_exports.string().optional(), agentHttpProtocol: external_exports.enum(["http2", "http1"]).optional(), proxyAgentRetries: external_exports.boolean().optional() }),
+  jsonSchema: { type: "object", properties: { port: { type: "string" }, agentHttpProtocol: { enum: ["http2", "http1"] }, proxyAgentRetries: { type: "boolean" } } }
+};
 var remoteInfo = createTypertRemoteInfo({ package: "dsh-cursor-integration", methods: {
   "cursorIntegrationUsage/getProxySettings": {
     service: "cursorIntegrationUsage",
@@ -20052,6 +20058,13 @@ var remoteInfo = createTypertRemoteInfo({ package: "dsh-cursor-integration", met
     description: "Save the Cursor proxy port through ConfigEditor.",
     invocation: { kind: "direct" },
     parameters: [{ name: "port", source: "json", codec: proxyPortCodec, strictCodec: proxyPortCodec }],
+    result: proxySettingsResult
+  },
+  "cursorIntegrationUsage/setConnectionSettings": {
+    service: "cursorIntegrationUsage",
+    description: "Save the Cursor proxy port or agent HTTP protocol through ConfigEditor.",
+    invocation: { kind: "direct" },
+    parameters: [{ name: "patch", source: "json", codec: connectionPatch, strictCodec: connectionPatch }],
     result: proxySettingsResult
   },
   ...Object.fromEntries(["getCompactionSettings", "getRouteChecks", "startRouteChecks", "stopRouteChecks"].map((name) => ["cursorIntegrationUsage/" + name, {
@@ -20135,23 +20148,31 @@ function createUsageStore(api, { setTimer = setInterval, clearTimer = clearInter
     getSnapshot: () => state,
     refresh,
     async selectKey(id) {
-      if (state.switching || stopped) return false;
+      if (state.switching || stopped) return null;
       generation++;
       publish({ switching: true, error: "" });
-      let accepted = false;
       try {
         const result = await api.selectKey(id);
         if (result.ok && result.value.ok) {
-          publish({ data: { ...state.data, active: result.value.active, keys: result.value.keys, account: null }, error: "" });
-          accepted = true;
-        } else publish({ error: result.ok ? result.value.error : "\u5BC6\u94A5\u5207\u6362\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002" });
+          const { active, keys, manual } = result.value;
+          publish({ data: {
+            ...state.data,
+            active,
+            keys,
+            account: active?.account ?? null,
+            local: null,
+            pool: { ...state.data?.pool, manual }
+          }, error: "" });
+          void Promise.resolve(pending).then(refresh);
+          return result.value;
+        }
+        publish({ error: result.ok && result.value.error || "\u5BC6\u94A5\u5207\u6362\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002" });
       } catch {
         publish({ error: "DSH \u8FDE\u63A5\u6682\u65F6\u4E0D\u53EF\u7528\uFF0C\u5BC6\u94A5\u672A\u786E\u8BA4\u5207\u6362\u3002" });
+      } finally {
+        publish({ switching: false });
       }
-      await pending;
-      publish({ switching: false });
-      if (accepted) await refresh();
-      return accepted;
+      return null;
     },
     subscribe(listener) {
       listeners.add(listener);
@@ -20182,6 +20203,13 @@ var styles2 = `
 .cu-status-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;font-size:16px;line-height:1;color:var(--dsw-alias-label-secondary)}
 .cu-status-text{overflow-wrap:anywhere}
 .cu-status-detail{color:var(--dsw-alias-label-tertiary);border-left:1px solid var(--dsw-alias-border-l3);padding-left:8px}
+.cu-retry-wrap{display:inline-flex;align-items:center;gap:6px;flex:none}
+.cu-retry-btn{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm,6px);background:transparent;color:var(--dsw-alias-state-business-primary,var(--dsw-alias-label-primary));font:inherit;font-size:12px;font-weight:500;line-height:1;cursor:pointer}
+.cu-retry-btn svg{width:12px;height:12px;flex:none}
+.cu-retry-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.cu-retry-btn:disabled{opacity:.5;cursor:default}
+.cu-retry-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.cu-retry-error{color:var(--dsw-alias-state-error-primary,#c44942);font-size:12px}
 .cu-status-error .cu-status-icon{color:var(--dsw-alias-state-error-primary,#c44942)}
 .cu-status-busy .cu-status-icon{color:var(--dsw-alias-state-business-primary)}
 .cu-quota-row{gap:4px 8px;padding:0 2px}
@@ -20218,6 +20246,37 @@ function openUsagePage(slots) {
   return true;
 }
 
+// src/usage/retry.js
+function canRetryTurn({
+  cursor,
+  retryableFailure,
+  running,
+  removed,
+  openState,
+  pendingSubmissions,
+  subagent,
+  hasQueued
+}) {
+  return Boolean(
+    cursor && retryableFailure !== null && retryableFailure !== void 0 && !running && !removed && openState === "open" && subagent === null && (pendingSubmissions ?? 0) === 0 && !hasQueued
+  );
+}
+async function submitSessionRetry(ctx, sessionId) {
+  const binding = sessionId ? ctx?.get?.("sessions")?.binding?.(sessionId) : void 0;
+  if (!binding?.session?.prompt) {
+    return { ok: false, message: "\u5F53\u524D\u4F1A\u8BDD\u6682\u4E0D\u53EF\u91CD\u8BD5" };
+  }
+  try {
+    const res = await binding.session.prompt([], "queue");
+    if (res && res.ok === false) {
+      return { ok: false, message: "\u91CD\u8BD5\u8BF7\u6C42\u672A\u88AB\u63A5\u53D7\uFF0C\u8BF7\u76F4\u63A5\u53D1\u9001\u6D88\u606F\u7EE7\u7EED\u3002" };
+    }
+    return { ok: true, message: "" };
+  } catch {
+    return { ok: false, message: "\u91CD\u8BD5\u8BF7\u6C42\u53D1\u9001\u5931\u8D25\uFF0C\u8BF7\u76F4\u63A5\u53D1\u9001\u6D88\u606F\u7EE7\u7EED\u3002" };
+  }
+}
+
 // usage-entry.js
 var h2 = import_react3.default.createElement;
 var money = (n) => n === null || n === void 0 ? "\u672A\u63D0\u4F9B" : "$" + n.toFixed(2);
@@ -20236,26 +20295,41 @@ function Ring({ item, size = 14 }) {
     value > 0 ? h2("circle", { cx: 8, cy: 8, r: 5.5, fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", pathLength: 100, strokeDasharray: `${value} 100`, transform: "rotate(-90 8 8)" }) : null
   );
 }
-var inject = ["slots", "remote"];
+var inject = ["slots", "remote", "sessions"];
 async function apply(ctx) {
   await ctx.remote.$mount(remoteInfo);
   let store, api;
   const useUsage = () => import_react3.default.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   function Dock({ useProjection, useSession, useInput, sessionId } = {}) {
     const running = useSession?.((s) => s.running) ?? false;
+    const subagent = useSession?.((s) => s.subagent) ?? null;
+    const removed = useSession?.((s) => s.removed) ?? false;
+    const openState = useSession?.((s) => s.openState) ?? "open";
+    const pendingSubmissions = useSession?.((s) => s.pendingSubmissions?.length ?? 0) ?? 0;
+    const retryableFailure = useProjection?.("conversationContinuation") ?? null;
+    const inbox = useProjection?.("inbox");
+    const hasQueued = (inbox?.["next-turn"]?.length ?? 0) > 0 || Boolean(inbox?.["next-step"]?.some((m) => m?.source?.kind === "user"));
     const inputModel = useInput?.((s) => typeof s.model === "string" ? s.model : s.model?.id);
     const [display, setDisplay] = import_react3.default.useState(null);
+    const displayRevision = import_react3.default.useRef(0);
     const modelRoute = useProjection?.("cursorContextRoute");
     const compaction = useProjection?.("cursorCompactionStatus");
     const { data, busy, switching, error: error62 } = useUsage();
     const [navigationError, setNavigationError] = import_react3.default.useState("");
+    const [retrying, setRetrying] = import_react3.default.useState(false);
+    const [retryError, setRetryError] = import_react3.default.useState("");
+    import_react3.default.useEffect(() => {
+      setRetrying(false);
+      setRetryError("");
+    }, [sessionId, retryableFailure, running]);
     const model = (running ? modelRoute?.model : inputModel || modelRoute?.model)?.split("@")[0];
     import_react3.default.useEffect(() => {
       let alive = true, timer;
       async function read() {
+        const revision = displayRevision.current;
         try {
           const r = await api.getDisplayState(sessionId ?? "");
-          if (alive && r.ok) setDisplay(r.value);
+          if (alive && r.ok && revision === displayRevision.current) setDisplay(r.value);
         } finally {
           if (alive) timer = setTimeout(() => {
             read().catch(() => {
@@ -20272,6 +20346,8 @@ async function apply(ctx) {
     }, [sessionId, model, running, switching]);
     const ref = running ? Number.isFinite(modelRoute?.started) && display?.session?.time >= modelRoute.started && display.session.model === model ? display.session.ref : modelRoute?.accountRef : display?.defaults?.[model] ?? display?.fallback;
     const displayed = display?.keys.find((row) => row.id === ref);
+    const accountChoices = display?.keys ?? [];
+    const manual = Boolean(display?.manual);
     const account = displayed?.account, info = account?.data;
     const stale = Boolean(error62 || account?.error);
     const identity = displayed?.label || (running ? "\u7B49\u5F85\u672C\u8F6E\u8D26\u53F7\u8BB0\u5F55" : "\u8BFB\u53D6\u9ED8\u8BA4\u8D26\u53F7\u2026");
@@ -20285,6 +20361,18 @@ async function apply(ctx) {
       "\u70B9\u51FB\u67E5\u770B\u7528\u91CF\u660E\u7EC6"
     ].filter(Boolean).join("\n");
     const cursor = modelRoute?.provider === "cursor";
+    const canRetry = canRetryTurn({ cursor, retryableFailure, running, removed, openState, pendingSubmissions, subagent, hasQueued });
+    const onRetry = async () => {
+      if (!canRetry || retrying) return;
+      setRetrying(true);
+      setRetryError("");
+      try {
+        const result = await submitSessionRetry(ctx, sessionId);
+        if (!result.ok) setRetryError(result.message);
+      } finally {
+        setRetrying(false);
+      }
+    };
     const checkpoint = display?.sessionId === sessionId ? display.path : null;
     const checkpointBusy = checkpoint?.startsWith("\u6B63\u5728");
     const checkpointFailed = checkpoint?.includes("\u5931\u8D25");
@@ -20293,19 +20381,31 @@ async function apply(ctx) {
     const compressionFailed = compaction?.status === "failed";
     const compressionCancelled = compaction?.error === "\u5DF2\u53D6\u6D88\u538B\u7F29";
     const compressionText = compressionBusy ? "\u6B63\u5728\u751F\u6210\u6458\u8981\uFF0C\u8BF7\u7A0D\u5019" : compressionCancelled ? "\u5DF2\u53D6\u6D88\u538B\u7F29" : compressionFailed ? "\u538B\u7F29\u5931\u8D25 \xB7 " + (compaction.error || "\u8BF7\u7A0D\u540E\u91CD\u8BD5") : compaction?.summarized ? "\u6458\u8981\u538B\u7F29\u5DF2\u5B8C\u6210 \xB7 " + date5(compaction.summarized) : "\u5C1A\u65E0\u6210\u529F\u7684\u6458\u8981\u538B\u7F29\u8BB0\u5F55";
-    const statusRow = (label, icon, text, tone2, extra) => h2(
+    const statusRow = (label, icon, text, tone2, extra, action) => h2(
       "span",
       { className: "cu-status-row cu-status-" + tone2, role: "status" },
       h2(Icon, { name: icon, className: "cu-status-icon" }),
       h2("span", { className: "cu-status-label" }, label),
       h2("span", { className: "cu-status-text" }, text),
-      extra ? h2("span", { className: "cu-status-detail" }, extra) : null
+      extra ? h2("span", { className: "cu-status-detail" }, extra) : null,
+      action || null
     );
+    const retryAction = canRetry ? h2(
+      "span",
+      { className: "cu-retry-wrap" },
+      h2(
+        "button",
+        { type: "button", className: "cu-retry-btn", disabled: retrying, "aria-busy": retrying, onClick: onRetry },
+        h2(Icon, { name: "refresh" }),
+        retrying ? "\u6B63\u5728\u91CD\u8BD5\u2026" : "\u91CD\u8BD5"
+      ),
+      retryError ? h2("span", { className: "cu-retry-error", role: "alert" }, retryError) : null
+    ) : null;
     return h2(
       "span",
       { className: "cu-dock", "aria-label": "Cursor \u5DF2\u7528\u989D\u5EA6" },
       h2("style", null, styles2),
-      cursor && statusRow("\u68C0\u67E5\u70B9", checkpointIcon, checkpoint ?? "\u7B49\u5F85\u672C\u8F6E\u8BF7\u6C42", checkpointFailed ? "error" : checkpointBusy ? "busy" : "normal"),
+      cursor && statusRow("\u68C0\u67E5\u70B9", checkpointIcon, checkpoint ?? "\u7B49\u5F85\u672C\u8F6E\u8BF7\u6C42", checkpointFailed ? "error" : checkpointBusy ? "busy" : "normal", null, retryAction),
       (cursor || compressionBusy || compressionFailed || compaction?.summarized) && statusRow(
         "\u4E0A\u4E0B\u6587\u538B\u7F29",
         compressionFailed && !compressionCancelled ? "warning" : compressionBusy ? "refresh" : "compress",
@@ -20321,22 +20421,27 @@ async function apply(ctx) {
           null,
           h2("strong", { className: "ci-popup-heading" }, h2(Icon, { name: "account" }), "\u5F53\u524D\u8D26\u53F7"),
           h2("div", { className: "ci-popup-row" }, h2("span", null, "\u672C\u8F6E\u4F7F\u7528"), h2("span", null, identity)),
-          h2("div", { className: "ci-popup-row" }, h2("span", null, "\u9009\u62E9\u65B9\u5F0F"), h2("span", null, data?.pool?.manual ? "\u624B\u52A8\u6307\u5B9A" : "\u81EA\u52A8\u9009\u62E9")),
+          h2("div", { className: "ci-popup-row" }, h2("span", null, "\u9009\u62E9\u65B9\u5F0F"), h2("span", null, manual ? "\u624B\u52A8\u6307\u5B9A" : "\u81EA\u52A8\u9009\u62E9")),
           h2(
             "div",
             { className: "ci-popup-options", "aria-label": "\u9009\u62E9\u4E0B\u4E00\u8F6E\u4F7F\u7528\u7684\u8D26\u53F7" },
-            ...[{ id: "@auto", label: "\u81EA\u52A8\u9009\u8D26\u53F7" }, ...data?.keys ?? []].map((row) => {
-              const selected = row.id === "@auto" ? !data?.pool?.manual : Boolean(data?.pool?.manual && row.id === data?.active?.id);
+            ...[{ id: "@auto", label: "\u81EA\u52A8\u9009\u8D26\u53F7" }, ...accountChoices].map((row) => {
+              const selected = row.id === "@auto" ? !manual : manual && row.id === display?.fallback;
               return h2(
                 "button",
                 {
                   key: row.id,
                   type: "button",
                   className: "ci-popup-option",
-                  disabled: switching || !data?.keys?.length,
+                  disabled: switching || !accountChoices.length,
                   "aria-pressed": selected,
                   onClick: async () => {
-                    if (await store.selectKey(row.id)) close();
+                    const selection = await store.selectKey(row.id);
+                    if (selection) {
+                      displayRevision.current++;
+                      setDisplay((current) => ({ ...current, ...selection }));
+                      close();
+                    }
                   }
                 },
                 h2(Icon, { name: row.id === "@auto" ? "refresh" : "account" }),
@@ -20614,7 +20719,8 @@ async function apply(ctx) {
     api = child.remote.cursorIntegrationUsage;
     store = createUsageStore(api);
     child.effect(() => () => store.dispose());
-    child.slots.inject("settings.section", () => child.slots.register({ name: "settings.section", id: "cursor-integration-usage", order: 25, label: () => "Cursor \u7528\u91CF", icon: () => h2(Icon, { name: "chart" }) }, Panel));
+    child.slots.inject("settings.section", () => child.slots.register({ name: "settings.section", id: "cursor-integration-usage", order: 25, label: () => "Cursor \u7528\u91CF" }, Panel));
+    child.slots.inject("settings.section.icon", () => child.slots.register({ name: "settings.section.icon", id: "cursor-integration-usage" }, ({ size }) => h2(Icon, { name: "chart", size })));
     child.slots.inject("conversation.composer.dock", () => child.slots.register({ name: "conversation.composer.dock", id: "cursor-integration-usage", order: 10 }, Dock));
   });
 }
@@ -20635,6 +20741,12 @@ var sheet = `
 .ci-settings label{display:grid;gap:6px;min-width:0}.ci-settings label>input:not([type=checkbox]){width:100%;min-width:0}.ci-settings .ci-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ci-settings .ci-inline>select{flex:1;min-width:120px}.ci-settings button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px}.ci-settings input:focus-visible,.ci-settings select:focus-visible,.ci-settings button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .ci-settings .ci-inline label{display:flex;align-items:center}.ci-settings input[type=checkbox]{accent-color:var(--dsw-alias-state-business-primary)}
 .ci-settings .ci-model{display:grid;gap:8px;padding:12px;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-md,6px)}
+.ci-settings .ci-model-list{display:grid;gap:8px}
+.ci-settings .ci-disclosure{width:100%;justify-content:space-between;gap:12px;padding:0;border:0;background:transparent;text-align:left}
+.ci-settings .ci-disclosure>span{display:flex;align-items:center;gap:8px;min-width:0}
+.ci-settings .ci-disclosure>svg{flex:none;color:var(--dsw-alias-label-secondary)}
+.ci-settings .ci-disclosure[aria-expanded=true]>svg{transform:rotate(180deg)}
+.ci-settings .ci-model>.ci-disclosure>span{display:grid;gap:0;overflow-wrap:anywhere}
 .ci-settings small{color:var(--dsw-alias-label-tertiary)}.ci-settings button{cursor:pointer}.ci-settings button:disabled{opacity:.5;cursor:default}
 .ci-settings button:hover:enabled{background:var(--dsw-alias-interactive-bg-hover)}
 .ci-settings .ci-primary{background:var(--dsw-alias-state-business-primary);color:white}.ci-settings .ci-primary:hover:enabled{filter:brightness(.95);background:var(--dsw-alias-state-business-primary)}.ci-settings .ci-error{color:var(--dsw-alias-state-error-primary)}
@@ -20694,7 +20806,10 @@ function CompactionControl({ api }) {
     "section",
     { className: "ci-section" },
     heading2("compress", "DSH \u81EA\u52A8\u538B\u7F29"),
-    h3("label", null, h3("span", null, "\u538B\u7F29\u89E6\u53D1\u6BD4\u4F8B\uFF080\uFF5E1\uFF09"), h3("input", { type: "number", min: 0.01, max: 1, step: 0.01, disabled, value, placeholder: snapshot ? "\u4E0D\u53EF\u7528" : "\u8BFB\u53D6\u4E2D\u2026", onChange: (event) => setDraft(event.target.value), onKeyDown: (event) => {
+    h3("label", null, h3("span", null, "\u538B\u7F29\u89E6\u53D1\u6BD4\u4F8B\uFF080\uFF5E1\uFF09"), h3("input", { type: "number", min: 0.01, max: 1, step: 0.01, disabled, value, placeholder: snapshot ? "\u4E0D\u53EF\u7528" : "\u8BFB\u53D6\u4E2D\u2026", onChange: (event) => {
+      setDraft(event.target.value);
+      setNotice("");
+    }, onKeyDown: (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
         void save();
@@ -20705,15 +20820,19 @@ function CompactionControl({ api }) {
     notice || snapshot?.error ? h3("p", { className: "ci-note", role: "status" }, notice || snapshot.error) : null
   );
 }
-function ProxyPortControl({ api }) {
+function ConnectionControl({ api }) {
   const [snapshot, setSnapshot] = import_react4.default.useState(null);
-  const [draft, setDraft] = import_react4.default.useState(null);
+  const [portDraft, setPortDraft] = import_react4.default.useState(null);
+  const [protocolDraft, setProtocolDraft] = import_react4.default.useState(null);
+  const [retriesDraft, setRetriesDraft] = import_react4.default.useState(null);
   const [notice, setNotice] = import_react4.default.useState("");
   const [busy, setBusy] = import_react4.default.useState(false);
+  const [menuOpen, setMenuOpen] = import_react4.default.useState(false);
+  const protocolButton = import_react4.default.useRef(null);
   import_react4.default.useEffect(() => {
     let alive = true;
     api.getProxySettings().then((reply) => {
-      if (alive) setSnapshot(reply.ok ? reply.value : { available: false, error: "\u8BFB\u53D6 DSH \u4EE3\u7406\u914D\u7F6E\u5931\u8D25\u3002" });
+      if (alive) setSnapshot(reply.ok ? reply.value : { available: false, error: "\u8BFB\u53D6 DSH \u8FDE\u63A5\u914D\u7F6E\u5931\u8D25\u3002" });
     }).catch(() => {
       if (alive) setSnapshot({ available: false, error: "\u65E0\u6CD5\u8FDE\u63A5 DSH \u914D\u7F6E\u670D\u52A1\u3002" });
     });
@@ -20722,21 +20841,33 @@ function ProxyPortControl({ api }) {
     };
   }, [api]);
   const disabled = busy || !snapshot?.available;
-  const canSave = !disabled && draft !== null && draft.trim() !== snapshot.port;
+  const protocols = [{ id: "http2", label: "HTTP/2\uFF08\u9ED8\u8BA4\uFF09" }, { id: "http1", label: "HTTP/1.1\uFF08SSE\uFF09" }];
+  const protocol = protocolDraft ?? snapshot?.agentHttpProtocol;
+  const retries = retriesDraft ?? Boolean(snapshot?.proxyAgentRetries);
+  const portChanged = portDraft !== null && portDraft.trim() !== snapshot?.port;
+  const protocolChanged = protocolDraft !== null && protocolDraft !== snapshot?.agentHttpProtocol;
+  const retriesChanged = retriesDraft !== null && retriesDraft !== Boolean(snapshot?.proxyAgentRetries);
+  const canSave = !disabled && (portChanged || protocolChanged || retriesChanged);
   async function save() {
     if (!canSave) return;
     setBusy(true);
     setNotice("");
     try {
-      const reply = await api.setProxyPort(draft);
+      const reply = await api.setConnectionSettings({
+        ...portChanged ? { port: portDraft } : {},
+        ...protocolChanged ? { agentHttpProtocol: protocolDraft } : {},
+        ...retriesChanged ? { proxyAgentRetries: retriesDraft } : {}
+      });
       if (!reply.ok) throw Error();
       setSnapshot(reply.value);
       if (!reply.value.error) {
-        setDraft(null);
-        setNotice("\u4EE3\u7406\u7AEF\u53E3\u5DF2\u4FDD\u5B58\u3002");
+        setPortDraft(null);
+        setProtocolDraft(null);
+        setRetriesDraft(null);
+        setNotice("\u8FDE\u63A5\u8BBE\u7F6E\u5DF2\u4FDD\u5B58\u3002");
       }
     } catch {
-      setNotice("\u4FDD\u5B58\u4EE3\u7406\u7AEF\u53E3\u5931\u8D25\uFF0C\u65E0\u6CD5\u8FDE\u63A5 DSH \u914D\u7F6E\u670D\u52A1\u3002");
+      setNotice("\u4FDD\u5B58\u8FDE\u63A5\u8BBE\u7F6E\u5931\u8D25\uFF0C\u65E0\u6CD5\u8FDE\u63A5 DSH \u914D\u7F6E\u670D\u52A1\u3002");
     } finally {
       setBusy(false);
     }
@@ -20744,33 +20875,81 @@ function ProxyPortControl({ api }) {
   return h3(
     "div",
     { className: "ci-section" },
-    h3("label", null, h3("span", null, "Cursor SDK \u4EE3\u7406\u7AEF\u53E3"), h3("input", {
-      inputMode: "numeric",
-      disabled,
-      placeholder: "7890",
-      value: draft ?? snapshot?.port ?? "",
-      onChange: (event) => {
-        setDraft(event.target.value);
-        setNotice("");
-      },
-      onKeyDown: (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          void save();
+    h3(
+      "div",
+      { className: "ci-grid" },
+      h3("label", null, h3("span", null, "Cursor SDK \u4EE3\u7406\u7AEF\u53E3"), h3("input", {
+        inputMode: "numeric",
+        disabled,
+        placeholder: "7890",
+        value: portDraft ?? snapshot?.port ?? "",
+        onChange: (event) => {
+          setPortDraft(event.target.value);
+          setNotice("");
+        },
+        onKeyDown: (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            void save();
+          }
         }
+      })),
+      h3(
+        "label",
+        null,
+        h3("span", null, "Cursor SDK \u6D41\u5F0F\u534F\u8BAE"),
+        h3(import_dsh_client_ui_primitives2.Menu, {
+          items: protocols,
+          open: menuOpen,
+          onClose: () => setMenuOpen(false),
+          selectedId: protocol,
+          align: "start",
+          portal: true,
+          onSelect: (id) => {
+            setProtocolDraft(id);
+            setMenuOpen(false);
+            setNotice("");
+            protocolButton.current?.focus({ preventScroll: true });
+          },
+          anchor: h3(
+            "button",
+            {
+              ref: protocolButton,
+              type: "button",
+              className: "ci-account-select",
+              disabled,
+              "aria-label": "Cursor SDK \u6D41\u5F0F\u534F\u8BAE",
+              "aria-haspopup": "menu",
+              "aria-expanded": menuOpen,
+              onClick: () => setMenuOpen(!menuOpen)
+            },
+            h3("span", null, protocols.find((item) => item.id === protocol)?.label ?? (snapshot ? "\u4E0D\u53EF\u7528" : "\u8BFB\u53D6\u4E2D\u2026")),
+            h3(import_dsh_client_ui_primitives2.IconChevronDownOutlineRegular, { "aria-hidden": true })
+          )
+        })
+      )
+    ),
+    h3("div", { className: "ci-inline" }, h3("label", null, h3("input", {
+      type: "checkbox",
+      disabled,
+      checked: retries,
+      onChange: (event) => {
+        setRetriesDraft(event.target.checked);
+        setNotice("");
       }
-    })),
-    note("\u586B\u5199\u672C\u673A HTTP \u6216\u6DF7\u5408\u4EE3\u7406\u7AEF\u53E3\uFF0C\u7559\u7A7A\u76F4\u8FDE\u3002\u4FDD\u5B58\u540E DSH \u4F1A\u91CD\u65B0\u52A0\u8F7D Cursor \u96C6\u6210\u3002"),
+    }), h3("span", null, "\u542F\u7528 Cursor SDK \u65AD\u6D41\u81EA\u52A8\u91CD\u8FDE\uFF08\u4EE3\u7406\u4E0E\u76F4\u8FDE\u751F\u6548\uFF09"))),
+    note("\u4EE3\u7406\u7AEF\u53E3\u7559\u7A7A\u65F6\u76F4\u8FDE\uFF1B\u5F00\u542F\u65AD\u6D41\u81EA\u52A8\u91CD\u8FDE\u540E\u6700\u591A\u8FDE\u7EED\u91CD\u8FDE 3 \u6B21\u4E14\u65E0\u8FDB\u5C55 60 \u79D2\u6B62\u635F\uFF0C\u4E0D\u5F71\u54CD\u5DF2\u5B8C\u6210\u5DE5\u5177\u7684\u9632\u91CD\u653E\u4FDD\u62A4\u3002\u4FDD\u5B58\u4F1A\u91CD\u65B0\u52A0\u8F7D Cursor \u96C6\u6210\uFF0C\u8BF7\u5728\u5F53\u524D\u8BF7\u6C42\u7ED3\u675F\u540E\u5207\u6362\u3002"),
     h3("div", { className: "ci-inline" }, h3(
       "button",
       { type: "button", disabled: !canSave, onClick: save },
       h3(Icon, { name: busy ? "refresh" : "check" }),
-      busy ? "\u4FDD\u5B58\u4E2D\u2026" : "\u4FDD\u5B58\u4EE3\u7406\u7AEF\u53E3"
+      busy ? "\u4FDD\u5B58\u4E2D\u2026" : "\u4FDD\u5B58\u8FDE\u63A5\u8BBE\u7F6E"
     )),
     notice || snapshot?.error ? h3("p", { className: "ci-note", role: "status" }, notice || snapshot.error) : null
   );
 }
 function mountSettings(ctx) {
+  const sectionId = "cursor-integration-api";
   function Panel({ scope, view, compactionApi }) {
     const snapshot = import_react4.default.useSyncExternalStore((fn) => scope.subscribe(fn), () => scope.getSnapshot());
     const [draft, setDraft] = import_react4.default.useState(null);
@@ -20779,9 +20958,12 @@ function mountSettings(ctx) {
     const [busy, setBusy] = import_react4.default.useState(false);
     const [catalog, setCatalog] = import_react4.default.useState([]);
     const [query, setQuery] = import_react4.default.useState("");
+    const [modelsOpen, setModelsOpen] = import_react4.default.useState(false);
+    const [expandedModel, setExpandedModel] = import_react4.default.useState(null);
     const [selected, setSelected] = import_react4.default.useState(null);
     const [accountMenuOpen, setAccountMenuOpen] = import_react4.default.useState(false);
     const accountButton = import_react4.default.useRef(null);
+    const modelsId = import_react4.default.useId();
     if (view === "summary") return "Cursor \u96C6\u6210";
     const saved = snapshot.value?.providers?.cursor ?? {};
     const config2 = draft ?? {
@@ -20834,6 +21016,8 @@ function mountSettings(ctx) {
         }
         ids.add(model.id.trim());
         if (model.contextWindow !== void 0 && (!Number.isSafeInteger(model.contextWindow) || model.contextWindow < 1)) {
+          setModelsOpen(true);
+          setExpandedModel(model.id);
           setNotice("\u4E0A\u4E0B\u6587\u5BB9\u91CF\u987B\u4E3A\u6B63\u6574\u6570 Token \u6570\u3002");
           return;
         }
@@ -20945,64 +21129,97 @@ function mountSettings(ctx) {
           onChange: (event) => change({ usageRefreshMinutes: event.target.value })
         }),
         note("\u7528\u91CF\u5728\u540E\u53F0\u5B9A\u65F6\u5237\u65B0\u3002"),
-        compactionApi ? h3(ProxyPortControl, { api: compactionApi }) : null
+        compactionApi ? h3(ConnectionControl, { api: compactionApi }) : null
       ),
       compactionApi ? h3(CompactionControl, { api: compactionApi }) : note("\u5F53\u524D DSH \u672A\u63D0\u4F9B\u539F\u751F\u538B\u7F29\u914D\u7F6E\u3002"),
       h3(
         "section",
         { className: "ci-section" },
-        heading2("model", "\u6A21\u578B\u76EE\u5F55"),
-        h3(
-          "div",
-          { className: "ci-inline" },
-          h3("button", { type: "button", disabled: disabled || !compactionApi, onClick: discover }, h3(Icon, { name: "refresh" }), "\u83B7\u53D6\u6A21\u578B\u76EE\u5F55"),
-          h3("button", { type: "button", disabled, onClick: () => change({ models: void 0 }) }, "\u8DDF\u968F\u8D26\u53F7\u5168\u90E8\u6A21\u578B")
-        ),
-        field("\u641C\u7D22\u6A21\u578B", { value: query, onChange: (event) => setQuery(event.target.value) }),
-        ...catalog.filter((row) => (row.name + " " + row.id).toLowerCase().includes(query.toLowerCase())).filter((row) => !config2.models?.some((saved2) => saved2.id === row.id)).map((row) => h3(
-          "div",
-          { key: row.id, className: "ci-inline" },
-          h3("span", null, row.name ?? row.id),
-          modelCapabilities(row),
-          h3("button", { type: "button", disabled, onClick: () => change({ models: [...config2.models ?? [], { id: row.id, name: "Cursor " + (row.name ?? row.id) }] }) }, "\u6DFB\u52A0")
+        h3("h3", null, h3(
+          "button",
+          {
+            type: "button",
+            className: "ci-disclosure",
+            "aria-expanded": modelsOpen,
+            "aria-controls": modelsId,
+            onClick: () => setModelsOpen(!modelsOpen)
+          },
+          h3("span", null, h3(Icon, { name: "model" }), "\u6A21\u578B\u76EE\u5F55", h3("small", null, config2.models ? "\u5DF2\u914D\u7F6E " + config2.models.length + " \u4E2A" : "\u8DDF\u968F\u8D26\u53F7\u5168\u90E8\u6A21\u578B")),
+          h3(import_dsh_client_ui_primitives2.IconChevronDownOutlineRegular, { "aria-hidden": true })
         )),
-        ...(config2.models ?? []).filter((row) => (row.id + " " + (row.name ?? "")).toLowerCase().includes(query.toLowerCase())).map((row) => h3(
-          "div",
-          { key: row.id, className: "ci-model" },
+        h3("div", { id: modelsId, hidden: !modelsOpen, className: modelsOpen ? "ci-model-list" : void 0 }, ...modelsOpen ? [
           h3(
             "div",
             { className: "ci-inline" },
-            h3("strong", null, row.id),
-            h3("button", { type: "button", disabled, onClick: () => change({ models: config2.models.filter((m) => m.id !== row.id) }) }, "\u79FB\u9664")
+            h3("button", { type: "button", disabled: disabled || !compactionApi, onClick: discover }, h3(Icon, { name: "refresh" }), "\u83B7\u53D6\u6A21\u578B\u76EE\u5F55"),
+            h3("button", { type: "button", disabled, onClick: () => change({ models: void 0 }) }, "\u8DDF\u968F\u8D26\u53F7\u5168\u90E8\u6A21\u578B")
           ),
-          field("\u663E\u793A\u540D\u79F0", { value: row.name ?? "", onChange: (event) => editModel(row.id, { name: event.target.value }) }),
-          field("\u4E0A\u4E0B\u6587\u5BB9\u91CF\uFF08Token\uFF09", {
-            type: "number",
-            min: 1,
-            value: row.contextWindow ?? "",
-            onChange: (event) => editModel(row.id, { contextWindow: event.target.value ? Number(event.target.value) : void 0 })
-          }),
-          h3("small", null, row.contextWindow ? "\u5F53\u524D\u4F7F\u7528\u6A21\u578B\u624B\u52A8\u914D\u7F6E\u7684\u5BB9\u91CF\u3002" : config2.contextWindow ? "\u7EE7\u627F\u5168\u5C40\u5BB9\u91CF " + config2.contextWindow.toLocaleString() + " Token\u3002" : "\u7559\u7A7A\u65F6\u4F7F\u7528 Cursor \u76EE\u5F55\u7ED9\u51FA\u7684\u5BB9\u91CF\u3002"),
-          catalog.some((model) => model.id === row.id) ? modelCapabilities(catalog.find((model) => model.id === row.id)) : null,
-          h3(
+          field("\u641C\u7D22\u6A21\u578B", { value: query, onChange: (event) => setQuery(event.target.value) }),
+          ...catalog.filter((row) => (row.name + " " + row.id).toLowerCase().includes(query.toLowerCase())).filter((row) => !config2.models?.some((saved2) => saved2.id === row.id)).map((row) => h3(
             "div",
-            { className: "ci-inline" },
-            ...["text", "image"].map((type) => h3(
-              "label",
-              { key: type },
-              h3("input", {
-                type: "checkbox",
-                disabled: disabled || type === "text",
-                checked: type === "text" || row.inputModalities?.includes("image") === true,
-                onChange: (event) => editModel(row.id, { inputModalities: event.target.checked ? ["text", "image"] : ["text"] })
-              }),
-              type === "text" ? "\u6587\u5B57" : "\u56FE\u7247"
-            )),
-            h3("label", null, h3("input", { type: "checkbox", disabled, checked: row.fast === true, onChange: (event) => editModel(row.id, { fast: event.target.checked }) }), "Fast")
-          ),
-          !row.inputModalities ? h3("small", null, "\u56FE\u7247\u80FD\u529B\u672A\u58F0\u660E\uFF0C\u5F53\u524D\u6309\u6587\u5B57\u5904\u7406\u3002") : null
-        )),
-        !config2.models ? note("\u672A\u6307\u5B9A\u6A21\u578B\u5217\u8868\u65F6\uFF0C\u8DDF\u968F\u8D26\u53F7\u53EF\u7528\u7684\u5168\u90E8\u6A21\u578B\u3002") : null
+            { key: row.id, className: "ci-inline" },
+            h3("span", null, row.name ?? row.id),
+            modelCapabilities(row),
+            h3("button", { type: "button", disabled, onClick: () => change({ models: [...config2.models ?? [], { id: row.id, name: "Cursor " + (row.name ?? row.id) }] }) }, "\u6DFB\u52A0")
+          )),
+          ...(config2.models ?? []).filter((row) => (row.id + " " + (row.name ?? "")).toLowerCase().includes(query.toLowerCase())).map((row) => {
+            const expanded = expandedModel === row.id;
+            const editorId = modelsId + "-" + encodeURIComponent(row.id);
+            const discovered = expanded ? catalog.find((model) => model.id === row.id) : void 0;
+            return h3(
+              "div",
+              { key: row.id, className: "ci-model" },
+              h3(
+                "button",
+                {
+                  type: "button",
+                  className: "ci-disclosure",
+                  "aria-expanded": expanded,
+                  "aria-controls": editorId,
+                  onClick: () => setExpandedModel(expanded ? null : row.id)
+                },
+                h3("span", null, h3("strong", null, row.name || row.id), row.name && row.name !== row.id ? h3("small", null, row.id) : null),
+                h3(import_dsh_client_ui_primitives2.IconChevronDownOutlineRegular, { "aria-hidden": true })
+              ),
+              h3("div", { id: editorId, hidden: !expanded, className: expanded ? "ci-model-list" : void 0 }, ...expanded ? [
+                field("\u663E\u793A\u540D\u79F0", { value: row.name ?? "", onChange: (event) => editModel(row.id, { name: event.target.value }) }),
+                field("\u4E0A\u4E0B\u6587\u5BB9\u91CF\uFF08Token\uFF09", {
+                  type: "number",
+                  min: 1,
+                  value: row.contextWindow ?? "",
+                  onChange: (event) => editModel(row.id, { contextWindow: event.target.value ? Number(event.target.value) : void 0 })
+                }),
+                h3("small", null, row.contextWindow ? "\u5F53\u524D\u4F7F\u7528\u6A21\u578B\u624B\u52A8\u914D\u7F6E\u7684\u5BB9\u91CF\u3002" : config2.contextWindow ? "\u7EE7\u627F\u5168\u5C40\u5BB9\u91CF " + config2.contextWindow.toLocaleString() + " Token\u3002" : "\u7559\u7A7A\u65F6\u4F7F\u7528 Cursor \u76EE\u5F55\u7ED9\u51FA\u7684\u5BB9\u91CF\u3002"),
+                discovered ? modelCapabilities(discovered) : null,
+                h3(
+                  "div",
+                  { className: "ci-inline" },
+                  ...["text", "image"].map((type) => h3(
+                    "label",
+                    { key: type },
+                    h3("input", {
+                      type: "checkbox",
+                      disabled: disabled || type === "text",
+                      checked: type === "text" || row.inputModalities?.includes("image") === true,
+                      onChange: (event) => editModel(row.id, { inputModalities: event.target.checked ? ["text", "image"] : ["text"] })
+                    }),
+                    type === "text" ? "\u6587\u5B57" : "\u56FE\u7247"
+                  )),
+                  h3("label", null, h3("input", { type: "checkbox", disabled, checked: row.fast === true, onChange: (event) => editModel(row.id, { fast: event.target.checked }) }), "Fast")
+                ),
+                !row.inputModalities ? h3("small", null, "\u56FE\u7247\u80FD\u529B\u672A\u58F0\u660E\uFF0C\u5F53\u524D\u6309\u6587\u5B57\u5904\u7406\u3002") : null,
+                h3("div", { className: "ci-inline" }, h3("button", {
+                  type: "button",
+                  disabled,
+                  onClick: () => {
+                    change({ models: config2.models.filter((model) => model.id !== row.id) });
+                    setExpandedModel(null);
+                  }
+                }, "\u79FB\u9664"))
+              ] : [])
+            );
+          })
+        ] : [])
       ),
       notice ? h3("p", { className: "ci-note ci-notice", role: "status" }, h3(Icon, { name: /失败|须|请输入|不能为空/.test(notice) ? "warning" : notice === "\u914D\u7F6E\u5DF2\u4FDD\u5B58\u3002" ? "check" : "info" }), notice) : null,
       h3(
@@ -21026,20 +21243,25 @@ function mountSettings(ctx) {
         name: "plugins.bundle.config",
         key: "dsh-cursor-integration"
       }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration"), compactionApi: child.remote.cursorIntegrationUsage })));
-      let section;
+      let section, icon;
       try {
         section = child.slots.inject("settings.section", () => child.slots.register({
           name: "settings.section",
-          id: "cursor-integration-api",
+          id: sectionId,
           order: 24,
-          label: () => "Cursor \u96C6\u6210",
-          icon: () => h3(Icon, { name: "model" })
+          label: () => "Cursor \u96C6\u6210"
         }, (props) => h3(Panel, { ...props, scope: forms.get("cursor-integration"), compactionApi: child.remote.cursorIntegrationUsage, view: "editor" })));
+        icon = child.slots.inject("settings.section.icon", () => child.slots.register({
+          name: "settings.section.icon",
+          id: sectionId
+        }, ({ size }) => h3(Icon, { name: "model", size })));
       } catch (error62) {
+        section?.();
         bundle();
         throw error62;
       }
       return () => {
+        icon();
         section();
         bundle();
       };
