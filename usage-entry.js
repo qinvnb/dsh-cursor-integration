@@ -7,6 +7,8 @@ import {createUsageStore} from './src/usage/ui-store.js';
 import {styles} from './src/usage/styles.js';
 import {openUsagePage} from './src/usage/switch.js';
 import {canRetryTurn,submitSessionRetry} from './src/usage/retry.js';
+import {ContextPill} from './client/context.js';
+import {selectDockQuotas,summarizeCheckpoint,summarizeCompaction} from './src/usage/dock-model.js';
 const h = React.createElement;
 const money = n => n === null || n === undefined ? '未提供' : '$' + n.toFixed(2);
 const number = n => typeof n === 'number' ? n.toLocaleString('zh-CN') : '—';
@@ -36,10 +38,11 @@ export async function apply(ctx) {
     const retryableFailure=useProjection?.('conversationContinuation')??null;
     const inbox=useProjection?.('inbox');
     const hasQueued=(inbox?.['next-turn']?.length??0)>0||Boolean(inbox?.['next-step']?.some(m=>m?.source?.kind==='user'));
-    const inputModel=useInput?.(s=>typeof s.model==='string'?s.model:s.model?.id);
+    const inputModel=useInput?.(s=>typeof s.model==='string'?s.model:s.model?.id??s.model?.model);
     const [display,setDisplay]=React.useState(null);
     const displayRevision=React.useRef(0);
     const modelRoute=useProjection?.('cursorContextRoute');
+    const breakdown=useProjection?.('contextBreakdown');
     const compaction=useProjection?.('cursorCompactionStatus');
     const {data, busy, switching, error} = useUsage();
     const [navigationError,setNavigationError] = React.useState('');
@@ -77,34 +80,27 @@ export async function apply(ctx) {
       finally{setRetrying(false);}
     };
     const checkpoint=display?.sessionId===sessionId?display.path:null;
-    const checkpointBusy=checkpoint?.startsWith('正在');
-    const checkpointFailed=checkpoint?.includes('失败');
-    const checkpointIcon=checkpointFailed?'warning':checkpointBusy?'refresh':'checkpoint';
-    const compressionBusy=compaction?.status==='running';
+    const checkpointSummary=summarizeCheckpoint(checkpoint);
+    const compactionSummary=summarizeCompaction(compaction,date);
     const compressionFailed=compaction?.status==='failed';
     const compressionCancelled=compaction?.error==='已取消压缩';
-    const compressionText=compressionBusy?'正在生成摘要，请稍候':
-      compressionCancelled?'已取消压缩':compressionFailed?'压缩失败 · '+(compaction.error||'请稍后重试'):
-      compaction?.summarized?'摘要压缩已完成 · '+date(compaction.summarized):'尚无成功的摘要压缩记录';
-    const statusRow=(label,icon,text,tone,extra,action)=>h('span',{className:'cu-status-row cu-status-'+tone,role:'status'},
-      h(Icon,{name:icon,className:'cu-status-icon'}),
-      h('span',{className:'cu-status-label'},label),
-      h('span',{className:'cu-status-text'},text),
-      extra?h('span',{className:'cu-status-detail'},extra):null,action||null);
+    const showCompaction=Boolean(cursor||compaction?.status==='running'||compressionFailed||compaction?.summarized||compaction?.pruned);
+    const quotaView=selectDockQuotas(info?.meters,model);
+    const routeLabel=(data?.routes?.[modelRoute?.model?.split('@')[0]]??data?.defaultRoute)==='direct'?'优先直连':'优先代理';
     const retryAction=canRetry?h('span',{className:'cu-retry-wrap'},
       h('button',{type:'button',className:'cu-retry-btn',disabled:retrying,'aria-busy':retrying,onClick:onRetry},
         h(Icon,{name:'refresh'}),retrying?'正在重试…':'重试'),
       retryError?h('span',{className:'cu-retry-error',role:'alert'},retryError):null):null;
-    return h('span', {className: 'cu-dock', 'aria-label':'Cursor 已用额度'}, h('style', null, styles),
-      cursor && statusRow('检查点',checkpointIcon,checkpoint??'等待本轮请求',checkpointFailed?'error':checkpointBusy?'busy':'normal',null,retryAction),
-      (cursor||compressionBusy||compressionFailed||compaction?.summarized) && statusRow('上下文压缩',compressionFailed&&!compressionCancelled?'warning':compressionBusy?'refresh':'compress',
-        compressionText,compressionFailed&&!compressionCancelled?'error':compressionBusy?'busy':'normal',
-        compaction?.pruned?'工具输出最近裁剪于 '+date(compaction.pruned):null),
-      h('span',{className:'cu-quota-row'},
+    const quotaTrigger=[
+      h(Ring,{key:'ring',item:quotaView.active}),
+      h('span',{key:'value',className:'cu-pill-text'},quotaNames[quotaView.activeKey]+' '+percent(quotaView.active?.percent)),
+    ];
+    return h('span', {className: 'cu-dock cu-bar', 'aria-label':'Cursor 状态栏'}, h('style', null, styles),
       h(Popup,{label:'查看和切换 Cursor 账号',trigger:[h(Icon,{key:'icon',name:'account'}),h('span',{key:'name',className:'cu-key-label'},switching?'切换中…':identity)]},close=>h(React.Fragment,null,
         h('strong',{className:'ci-popup-heading'},h(Icon,{name:'account'}),'当前账号'),
         h('div',{className:'ci-popup-row'},h('span',null,'本轮使用'),h('span',null,identity)),
         h('div',{className:'ci-popup-row'},h('span',null,'选择方式'),h('span',null,manual?'手动指定':'自动选择')),
+        modelRoute?.provider==='cursor' && data ? h('div',{className:'ci-popup-row'},h('span',null,'优先线路'),h('span',null,routeLabel)) : null,
         h('div',{className:'ci-popup-options','aria-label':'选择下一轮使用的账号'},
           ...[{id:'@auto',label:'自动选账号'},...accountChoices].map(row=>{
             const selected=row.id==='@auto'?!manual:manual&&row.id===display?.fallback;
@@ -117,25 +113,46 @@ export async function apply(ctx) {
           })),
         error?h('div',{className:'ci-popup-note',role:'alert'},error):null,
         h('div',{className:'ci-popup-note'},'切换对新请求生效，正在运行的请求继续使用原账号。'))),
-      modelRoute?.provider==='cursor' && data && h('span',{className:'cu-route',title:'当前模型新一轮请求的优先线路'},h(Icon,{name:'network'}),(data.routes?.[modelRoute.model?.split('@')[0]]??data.defaultRoute)==='direct'?'优先直连':'优先代理'),
-      ...[['auto','Cursor 模型'],['api','其它模型'],['onDemand','个人按需']].map(([key,label])=>{
-        const item=info?.meters.find(m=>m.key===key), used=item?.percent;
-        const row=(name,value)=>h('div',{className:'ci-popup-row'},h('span',null,name),h('span',null,value));
-        const value=n=>item?.unit==='usd'?money(n):percent(n);
-        return h(Popup,{key,label:`查看${label}用量明细`,trigger:[
-          h(Ring,{key:'ring',item}),h('span',{key:'value',className:'cu-pill-text'},label+' '+percent(used)),
-        ]},
-          h('strong',{className:'ci-popup-heading'},h(Icon,{name:'chart'}),label),
-          row('当前账号',identity),row('已用比例',percent(used)),
-          row('已用额度',value(item?.used)),
-          item?.unit==='usd'?row('额度上限',money(item.limit)):null,
-          row('剩余额度',value(item?.remaining)),
-          row('当前账期',info?date(info.periodStart)+' — '+date(info.periodEnd):'—'),
-          row('最近更新',date(account?.fetchedAt)),
-          h('div',{className:'ci-popup-note'},stale?'查询暂不可用，当前为上次保存的数据。':item?'显示后台缓存数据，点击不会重新查询。':'暂无该项用量，等待后台刷新。'),
-          h('button',{type:'button',className:'ci-popup-action',onClick:()=>{setNavigationError(openUsagePage(ctx.slots)?'':'无法打开用量页，请从设置进入。');}},h(Icon,{name:'chart'}),'打开完整用量页'));
-      }),stale?h('span',{className:'cu-stale',title},'未更新'):null,
-      navigationError?h('span',{className:'cu-stale',role:'status'},navigationError):null));
+      h(ContextPill,{route:modelRoute,breakdown}),
+      h(Popup,{label:'查看 Cursor 全部额度明细',trigger:quotaTrigger},
+        h('strong',{className:'ci-popup-heading'},h(Icon,{name:'chart'}),'账号额度 · ',identity),
+        h('div',{className:'ci-popup-row'},h('span',null,'当前模型类别'),h('span',null,quotaNames[quotaView.primaryKey]+(quotaView.primaryExhausted?'（已满，切换个人按需）':''))),
+        ...[['auto','Cursor 模型'],['api','其它模型'],['onDemand','个人按需']].map(([key,label])=>{
+          const item=info?.meters.find(m=>m.key===key), used=item?.percent;
+          const value=n=>item?.unit==='usd'?money(n):percent(n);
+          return h('div',{key,className:'cu-quota-group'},
+            h('div',{className:'ci-popup-row'},h('span',null,h(Ring,{item,size:13}),' ',label),h('span',null,percent(used))),
+            h('div',{className:'ci-popup-row'},h('span',null,'已用 / 剩余'),h('span',null,value(item?.used)+' / '+value(item?.remaining))),
+            item?.unit==='usd'?h('div',{className:'ci-popup-row'},h('span',null,'额度上限'),h('span',null,money(item.limit))):null);
+        }),
+        h('div',{className:'ci-popup-row'},h('span',null,'当前账期'),h('span',null,info?date(info.periodStart)+' — '+date(info.periodEnd):'—')),
+        h('div',{className:'ci-popup-row'},h('span',null,'最近更新'),h('span',null,date(account?.fetchedAt))),
+        h('div',{className:'ci-popup-note'},stale?'查询暂不可用，当前为上次保存的数据。':info?'显示后台缓存数据，点击不会重新查询。':'暂无额度数据，等待后台刷新。'),
+        h('button',{type:'button',className:'ci-popup-action',onClick:()=>{setNavigationError(openUsagePage(ctx.slots)?'':'无法打开用量页，请从设置进入。');}},h(Icon,{name:'chart'}),'打开完整用量页')),
+      cursor && h(Popup,{label:'查看检查点详情：'+checkpointSummary.detail,trigger:[
+        h(Icon,{key:'icon',name:checkpointSummary.icon,className:'cu-pill-icon-'+checkpointSummary.tone}),
+        h('span',{key:'text',className:'cu-pill-text cu-pill-'+checkpointSummary.tone},checkpointSummary.short),
+      ]},
+        h('strong',{className:'ci-popup-heading'},h(Icon,{name:checkpointSummary.icon}),'检查点详情'),
+        h('div',{className:'ci-popup-row'},h('span',null,'当前状态'),h('span',null,checkpointSummary.detail)),
+        h('div',{className:'ci-popup-row'},h('span',null,'当前模型'),h('span',null,model||'—')),
+        h('div',{className:'ci-popup-row'},h('span',null,'当前账号'),h('span',null,identity)),
+        data ? h('div',{className:'ci-popup-row'},h('span',null,'优先线路'),h('span',null,routeLabel)) : null,
+        h('div',{className:'ci-popup-note'},'检查点用于复用或恢复 Cursor SDK 会话，仅在新请求开始或重连时更新。')),
+      showCompaction && h(Popup,{label:'查看上下文压缩详情：'+compactionSummary.detail,trigger:[
+        h(Icon,{key:'icon',name:compactionSummary.icon,className:'cu-pill-icon-'+compactionSummary.tone}),
+        h('span',{key:'text',className:'cu-pill-text cu-pill-'+compactionSummary.tone},compactionSummary.short),
+      ]},
+        h('strong',{className:'ci-popup-heading'},h(Icon,{name:compactionSummary.icon}),'上下文压缩详情'),
+        h('div',{className:'ci-popup-row'},h('span',null,'摘要状态'),h('span',null,compactionSummary.detail)),
+        h('div',{className:'ci-popup-row'},h('span',null,'最近摘要'),h('span',null,compaction?.summarized?date(compaction.summarized):'—')),
+        h('div',{className:'ci-popup-row'},h('span',null,'工具裁剪'),h('span',null,compaction?.pruned?date(compaction.pruned)+(Number.isFinite(compaction.prunedTokens)?' · 节省 '+number(compaction.prunedTokens)+' Token':''):'尚无裁剪记录')),
+        compressionFailed && !compressionCancelled ? h('div',{className:'ci-popup-row'},h('span',null,'失败原因'),h('span',null,compaction.error||'请稍后重试')) : null,
+        compaction?.started ? h('div',{className:'ci-popup-row'},h('span',null,'最近触发'),h('span',null,date(compaction.started))) : null,
+        h('div',{className:'ci-popup-note'},'达到阈值后自动裁剪工具输出或生成上下文摘要，以延续长对话。')),
+      retryAction,
+      stale?h('span',{className:'cu-stale',title},'未更新'):null,
+      navigationError?h('span',{className:'cu-stale',role:'status'},navigationError):null);
   }
   function Panel() {
     const {data, busy, error} = useUsage();
@@ -158,13 +175,14 @@ export async function apply(ctx) {
       setAllBusy(true);setAllError('');
       try {
         const result = await api.getAllSnapshots();
-        if (result.ok) {setAll(result.value);store.refresh();}
+        if (result.ok) {setAll(result.value);void Promise.resolve(store.refresh()).finally(()=>setAll(null));}
         else setAllError('全部密钥查询失败，请重试。');
       } catch {setAllError('DSH 连接暂时不可用，请重试。');}
       finally {setAllBusy(false);}
     };
     const refresh = store.refresh;
     const account = data?.account, local = data?.local, usage = local?.[range];
+    const allAccounts = all?.accounts ?? data?.keys ?? [];
     const stat = (label, value, hint) => h('div', {className: 'cu-stat'}, h('span', null, label), h('strong', null, value), hint ? h('small', null, hint) : null);
     const meter = item => h('div',{key:item.key,className:'cu-quota',title:item.key==='api'?'Claude、GPT、Gemini 等其它模型的额度池':item.key==='auto'?'Auto、Composer 等 Cursor 模型的额度池':'个人按需已用金额占上限的比例'},
       h('span',{className:'cu-quota-name'},quotaNames[item.key]??item.label),
@@ -202,16 +220,16 @@ export async function apply(ctx) {
       h('article',{className:'cu-card'},
         h('div',{className:'cu-line'},heading('account','全部密钥用量'),
           h('button',{type:'button',onClick:refreshAll,disabled:allBusy,'aria-busy':allBusy},h(Icon,{name:'refresh'}),allBusy ? '正在查询全部…' : '一键查询全部密钥')),
-        h('p',{className:'cu-sub'},'按密钥分别查询当前账期，不会切换当前密钥。同一 Cursor 账号的多个密钥可能显示相同额度，不叠加。'),
+        h('p',{className:'cu-sub'},'默认展示最近缓存的各密钥当前账期额度；点击右侧按钮立即刷新，不会切换当前密钥。同一 Cursor 账号的多个密钥可能显示相同额度，不叠加。'),
         allError ? h('p',{className:'cu-notice',role:'alert'},allError) : null,
-        !all ? h('p',{className:'cu-sub'},'点击上方按钮查询所有已保存的密钥。') :
-          all.accounts.map(row=>h('section',{key:row.id,className:'cu-account-row'},
+        !allAccounts.length ? h('p',{className:'cu-sub'},busy ? '正在读取密钥用量…' : '暂无已缓存的密钥用量，点击上方按钮立即查询。') :
+          allAccounts.map(row=>h('section',{key:row.id,className:'cu-account-row'},
             h('div',{className:'cu-line'},h('h3',null,row.label,' ',h('span',{className:'cu-sub'},row.keyHint)),
               row.id===data?.active?.id ? h('span',{className:'cu-active-badge'},'使用中') : null),
-            row.account.error ? h('p',{className:'cu-notice',role:'status'},row.account.error,row.account.data ? ' 以下为上次成功的数据。' : '') : null,
-            h('div',{className:'cu-quotas'},...['auto','api','onDemand'].map(key=>meter(row.account.data?.meters.find(item=>item.key===key) ?? {key,label:quotaNames[key],percent:null,remaining:null,unit:'percent'}))),
-            row.account.data ? h('p',{className:'cu-sub'},'账期 ',date(row.account.data.periodStart),' — ',date(row.account.data.periodEnd)) : null,
-            h('p',{className:'cu-sub'},'数据更新 ',date(row.account.fetchedAt))))),
+            row.account?.error ? h('p',{className:'cu-notice',role:'status'},row.account.error,row.account?.data ? ' 以下为上次成功的数据。' : '') : null,
+            h('div',{className:'cu-quotas'},...['auto','api','onDemand'].map(key=>meter(row.account?.data?.meters.find(item=>item.key===key) ?? {key,label:quotaNames[key],percent:null,remaining:null,unit:'percent'}))),
+            row.account?.data ? h('p',{className:'cu-sub'},'账期 ',date(row.account.data.periodStart),' — ',date(row.account.data.periodEnd)) : null,
+            h('p',{className:'cu-sub'},'数据更新 ',date(row.account?.fetchedAt))))),
       h('article', {className: 'cu-card'}, h('div', {className: 'cu-line'}, heading('account','账号套餐'), h('span', {className: 'cu-tag'}, ({enterprise:'团队套餐',pro:'Pro',pro_plus:'Pro+',ultra:'Ultra',free:'免费套餐'})[account?.data?.membership]??account?.data?.membership??'读取中')),
         account?.error ? h('p', {className: 'cu-notice', role: 'status'}, account.error, account.data ? ' 以下为上次成功的数据。' : '') : null,
         account?.data ? h(React.Fragment, null,
@@ -224,6 +242,7 @@ export async function apply(ctx) {
           onSelect:id=>{selectorRef.current?.focus({preventScroll:true});setMenuOpen(false);setRange(id);},align:'end',portal:true,
           anchor:h('button',{ref:selectorRef,type:'button',className:'cu-range','aria-label':'统计范围','aria-haspopup':'menu','aria-expanded':menuOpen,onClick:()=>setMenuOpen(!menuOpen)},
             range==='today'?'今天':range==='all'?'全部历史':local?.cycleSource==='calendar'?'本月':'当前账期',h(IconChevronDownOutlineRegular,{'aria-hidden':true}))})),
+        local?.scanning ? h('p', {className: 'cu-sub'}, usage ? '正在后台更新本地会话统计，以下为上次缓存结果…' : '正在后台扫描本地会话统计…') : null,
         local?.error ? h('p', {className: 'cu-notice'}, local.error) : null,
         h('div', {className: 'cu-grid'}, stat('DSH 调用步骤', number(usage?.calls), usage ? `失败 / 中断 ${number(usage.failed)}` : null),
           stat('Token 合计', number(usage?.totalTokens), usage ? `${usage.reportedCalls} 次有用量记录` : null),
@@ -250,4 +269,3 @@ export async function apply(ctx) {
     child.slots.inject('conversation.composer.dock', () => child.slots.register({name:'conversation.composer.dock', id:'cursor-integration-usage', order:10}, Dock));
   });
 }
-

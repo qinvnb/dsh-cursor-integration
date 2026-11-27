@@ -1,4 +1,33 @@
 import {ProviderError} from './provider.js';
+const num=v=>typeof v==='number'&&Number.isFinite(v)?v:null;
+const str=v=>typeof v==='string'?v:null;
+export function sanitizeUsageCache(raw){
+  if(!raw||typeof raw!=='object'||Array.isArray(raw)||raw.version!==1)return null;
+  if(!Number.isFinite(raw.updatedAt)||raw.updatedAt<=0)return null;
+  if(!raw.accounts||typeof raw.accounts!=='object'||Array.isArray(raw.accounts))return null;
+  const accounts={};
+  for(const [id,entry] of Object.entries(raw.accounts)){
+    if(typeof id!=='string'||!id||!entry||typeof entry!=='object'||Array.isArray(entry))continue;
+    if(!Number.isFinite(entry.fetchedAt)||entry.fetchedAt<=0)continue;
+    const data=entry.data;
+    if(!data||typeof data!=='object'||Array.isArray(data)||!Array.isArray(data.meters))continue;
+    const meters=[];
+    for(const m of data.meters){
+      if(!m||typeof m!=='object'||Array.isArray(m)||typeof m.key!=='string'||!m.key||typeof m.unit!=='string')continue;
+      meters.push({
+        key:m.key,label:typeof m.label==='string'?m.label:m.key,unit:m.unit,
+        used:num(m.used),limit:num(m.limit),remaining:num(m.remaining),percent:num(m.percent),
+      });
+    }
+    if(!meters.length)continue;
+    accounts[id]={
+      fetchedAt:entry.fetchedAt,
+      data:{membership:str(data.membership),periodStart:str(data.periodStart),periodEnd:str(data.periodEnd),meters},
+    };
+  }
+  if(!Object.keys(accounts).length)return null;
+  return {version:1,updatedAt:raw.updatedAt,accounts};
+}
 const day = 86400000;
 // Calendar days in the desktop timezone, including DST and leap years.
 function serial(date) {
@@ -50,10 +79,21 @@ export function rank(rows,current,threshold,category='api') {
   const sticky = known.find(row => row.id === current && meter(row,'onDemand').percent < threshold);
   return [...plan,...(sticky?[sticky]:[]),...known.filter(row=>row!==sticky),...rows.filter(row=>!known.includes(row)).sort((a,b)=>Number(b.id===current)-Number(a.id===current))];
 }
-export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval=()=>5,loadDefaults=()=>({}),saveDefaults=()=>{},onModelsChanged=()=>{}}) {
+export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval=()=>5,loadDefaults=()=>({}),saveDefaults=()=>{},loadUsageCache=()=>null,saveUsageCache=()=>{},onModelsChanged=()=>{}}) {
   const cooldownDurations={CURSOR_RATE_LIMITED:300000,CURSOR_AUTH_FAILED:600000};
   let lastAttempt=0, snapshot, pending, timer, stopped=false, selected, manual=false, warning='';
   let saved=loadDefaults();
+  const loaded=sanitizeUsageCache(loadUsageCache());
+  const cachedAccounts=new Map(
+    Object.entries(loaded?.accounts??{}).map(([id,entry])=>[id,{
+      status:'ready',data:entry.data,error:null,checkedAt:entry.fetchedAt,fetchedAt:entry.fetchedAt,
+    }]),
+  );
+  let lastSavedAt=loaded?.updatedAt??null;
+  const initialRows=accounts.list();
+  if(loaded && initialRows.length>0 && initialRows.every(row=>cachedAccounts.has(row.id)) && loaded.updatedAt<=now().getTime()) {
+    lastAttempt=loaded.updatedAt;
+  }
   const sessions=new Map();
   const cooldowns=new Map();
   const controller=new AbortController();
@@ -85,14 +125,32 @@ export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval
   }
   const minutes=()=>Math.max(1,Math.min(1440,Math.round(Number(interval())||5)));
   const active=()=>selected;
-  const info=()=>({cycle:cycleProgress(now()),warning,manual,refreshMinutes:minutes(),updatedAt:snapshot?.updatedAt??null});
+  const info=()=>({cycle:cycleProgress(now()),warning,manual,refreshMinutes:minutes(),updatedAt:snapshot?.updatedAt??lastSavedAt??null});
   const placeholder=row=>({...row,account:{status:'pending',data:null,checkedAt:null,fetchedAt:null}});
   function view() {
-    const rows=accounts.list().map(meta=>snapshot?.byId.get(meta.id)??placeholder(meta));
-    return {accounts:rows,totals:snapshot?.totals??[]};
+    const rows=accounts.list().map(meta=>{
+      const live=snapshot?.byId.get(meta.id);
+      if(live)return live;
+      const cached=cachedAccounts.get(meta.id);
+      if(cached)return {...meta,keyHint:meta.keyHint??'已缓存',account:cached};
+      return placeholder(meta);
+    });
+    return {accounts:rows,totals:snapshot?.totals??(rows.some(row=>row.account.status==='ready')?totals(rows):[])};
   }
   async function rebuild() {
-    const {accounts:rows}=await accounts.all(true);
+    const {accounts:rawRows}=await accounts.all(true);
+    const rows=rawRows.map(row=>{
+      if(row.account?.data || !cachedAccounts.has(row.id)) return row;
+      const prior=cachedAccounts.get(row.id);
+      return {
+        ...row,
+        account:{
+          ...row.account,
+          data:prior.data,
+          fetchedAt:row.account?.fetchedAt??prior.fetchedAt,
+        },
+      };
+    });
     const candidates=new Map();
     let next=0;
     async function collect() {
@@ -138,10 +196,34 @@ export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval
         warning='无法保存下次启动的默认账号。';
       }
     }
+    const updatedAt=now().getTime();
+    const activeIds=new Set(accounts.list().map(row=>row.id));
+    for(const id of cachedAccounts.keys()) if(!activeIds.has(id)) cachedAccounts.delete(id);
+    let hasFreshReady=false;
+    for(const row of rows) {
+      if(row.account?.status==='ready' && row.account?.data) {
+        hasFreshReady=true;
+        const fetchedAt=row.account.fetchedAt??updatedAt;
+        cachedAccounts.set(row.id,{
+          status:'ready',data:row.account.data,error:null,checkedAt:fetchedAt,fetchedAt,
+        });
+      }
+    }
+    if(hasFreshReady) {
+      lastSavedAt=updatedAt;
+      try {
+        const payload=sanitizeUsageCache({
+          version:1,
+          updatedAt,
+          accounts:Object.fromEntries([...cachedAccounts].map(([id,entry])=>[id,{fetchedAt:entry.fetchedAt,data:entry.data}])),
+        });
+        if(payload) saveUsageCache(payload);
+      } catch {}
+    }
     const models=[...union.values()];
     const fingerprint=rows=>JSON.stringify(rows?.slice().sort((a,b)=>a.id.localeCompare(b.id)));
     const changed=fingerprint(snapshot?.models??[])!==fingerprint(models);
-    snapshot={byModel,rankedByModel,candidates,models,byId:new Map(rows.map(row=>[row.id,row])),totals:totals(rows),updatedAt:now().getTime()};
+    snapshot={byModel,rankedByModel,candidates,models,byId:new Map(rows.map(row=>[row.id,row])),totals:totals(rows),updatedAt};
     if(changed)onModelsChanged();
   }
   function refresh() {
@@ -153,7 +235,11 @@ export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval
   }
   function start() {
     const tick=async()=>{
-      try {if(!lastAttempt || now().getTime()-lastAttempt>=minutes()*60000) await refresh();} catch {warning='后台刷新失败，继续使用已有结果。';}
+      const rows=accounts.list();
+      const missing=rows.some(row=>!snapshot?.byId.has(row.id)&&!cachedAccounts.has(row.id));
+      const elapsed=now().getTime()-lastAttempt;
+      const due=!lastAttempt||elapsed<0||elapsed>=minutes()*60000;
+      try {if(missing||due) await refresh();} catch {warning='后台刷新失败，继续使用已有结果。';}
       if(!stopped){timer=setTimeout(tick,Math.min(60000,Math.max(1,lastAttempt+minutes()*60000-now().getTime())));timer.unref?.();}
     };
     void tick();
@@ -169,7 +255,7 @@ export function createPool({accounts,resolve,catalog,now=()=>new Date(),interval
     if(!ref||!entries.some(row=>row.id===ref)) throw new ProviderError('MISSING_CREDENTIAL','当前账号密钥已移除。');
     const key=await resolve(ref);
     if(!key) throw new ProviderError('MISSING_CREDENTIAL','当前账号尚未保存密钥。');
-    if(!pinned&&!preview&&!manual){selected=ref;warning=best?.note??'暂用当前账号，等待后台更新账号池。';if(best?.demand)sticky.set(id,{ref,cycle:best.cycle});else sticky.delete(id);}
+    if(!pinned&&!preview&&!manual){selected=ref;warning=best?.note??(cachedAccounts.has(ref)?'':'暂用当前账号，等待后台更新账号池。');if(best?.demand)sticky.set(id,{ref,cycle:best.cycle});else sticky.delete(id);}
     if(sessionId&&!preview){sessions.delete(sessionId);sessions.set(sessionId,{ref,model:id,time:now().getTime()});if(sessions.size>512)sessions.delete(sessions.keys().next().value);}
     const cached=snapshot?.candidates.get(ref);
     return {ref,key,models:cached?.key===key?cached.models:undefined};

@@ -61,7 +61,8 @@ export function CompactionControl({api}) {
   }
   return h('section',{className:'ci-section'},heading('compress','DSH 自动压缩'),
     h('label',null,h('span',null,'压缩触发比例（0～1）'),h('input',{type:'number',min:0.01,max:1,step:0.01,disabled,value,placeholder:snapshot?'不可用':'读取中…',onChange:event=>{setDraft(event.target.value);setNotice('');},onKeyDown:event=>{if(event.key==='Enter'){event.preventDefault();void save();}}})),
-    note('直接修改 DSH 原生策略，作用于使用该策略的所有模型；0.7 表示达到容量的 70% 时触发，实际还受输出预留和安全余量限制。模型专属策略如有覆盖，仍以覆盖值为准。'),
+    note('直接修改 DSH 原生策略，作用于使用该策略的所有模型与预设；0.7 表示达到容量的 70% 时触发，实际还受输出预留和安全余量限制。模型专属策略如有覆盖，仍以覆盖值为准。'),
+    snapshot?.presetMismatch && !notice ? h('p',{className:'ci-note',role:'status'},h(Icon,{name:'info'}),'部分预设中的自动压缩阈值尚未同步，点击保存即可同步到全部预设。') : null,
     h('button',{type:'button',disabled,onClick:save},h(Icon,{name:'check'}),busy?'保存中…':'保存压缩阈值'),
     (notice||snapshot?.error)?h('p',{className:'ci-note',role:'status'},notice||snapshot.error):null);
 }

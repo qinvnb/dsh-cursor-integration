@@ -1,9 +1,10 @@
 import {TypertRemoteService,Remote} from '@deepseek-ai/dsh-typert-protocol';
 import {createLocalReader} from './local.js';
+import {loadLocalUsageCache,saveLocalUsageCache} from '../route-storage.js';
 import {compactionSettings} from '../compaction-settings.js';
 import {proxySettings} from '../proxy-settings.js';
 export function mountUsage(ctx,accounts,pool,checks,paths,modelCatalog,namespace) {
-  const local = createLocalReader(ctx.sessionQuery);
+  const local = createLocalReader(ctx.sessionQuery,Date.now,{loadCache:loadLocalUsageCache,saveCache:saveLocalUsageCache});
   function displayState(){
     const {accounts:rows}=pool.view();
     return {keys:rows,defaults:pool.defaults(),fallback:pool.plannedRef('')??null,manual:pool.info().manual};
@@ -21,7 +22,7 @@ export function mountUsage(ctx,accounts,pool,checks,paths,modelCatalog,namespace
       const {accounts:rows,totals:overall}=pool.view();
       const selected=rows.find(row=>row.id===pool.active()) ?? rows.find(row=>row.active) ?? rows[0] ?? {account:null};
       const current={...selected,active:true};
-      const stats = await local.get(current.account?.data);
+      const stats = local.peek(current.account?.data);
       const {account,...active} = current;
       return {account, active, keys:rows, local:stats, pool:pool.info(), routes:Object.fromEntries(checks.status().rows.map(row=>[row.id,checks.preferred(pool.plannedRef(row.id),row.id)])), defaultRoute:checks.fallback, totals:overall};
     }

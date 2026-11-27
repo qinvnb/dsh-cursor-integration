@@ -5,7 +5,35 @@ import {pathToFileURL} from 'node:url';
 import {isDeepStrictEqual} from 'node:util';
 
 const compactionId = 'compaction-basic';
+const compactionName = '@deepseek-ai/dsh-compaction-basic';
 const compactionRow = rows => rows.find(row=>row.id===compactionId && !row.group);
+
+export function patchNestedCompactionYaml(document, seqNode, ratio, {isMap, isSeq}) {
+  if (!isSeq(seqNode)) return false;
+  let changed = false;
+  for (const row of seqNode.items) {
+    if (!isMap(row)) continue;
+    const id = row.get('id', true);
+    const name = row.get('name', true);
+    const isGroup = row.get('group', true) === true;
+    if ((id === compactionId || name === compactionName) && !isGroup) {
+      const cfg = row.get('config', false);
+      if (isMap(cfg)) cfg.set('thresholdRatio', ratio);
+      else if (!isSeq(cfg)) row.set('config', document.createNode({thresholdRatio: ratio}));
+      changed = true;
+      continue;
+    }
+    const cfg = row.get('config', false);
+    if (isSeq(cfg) && patchNestedCompactionYaml(document, cfg, ratio, {isMap, isSeq})) changed = true;
+    else if (isMap(cfg)) {
+      const plugins = cfg.get('plugins', false);
+      if (isSeq(plugins) && patchNestedCompactionYaml(document, plugins, ratio, {isMap, isSeq})) changed = true;
+    }
+    const plugins = row.get('plugins', false);
+    if (isSeq(plugins) && patchNestedCompactionYaml(document, plugins, ratio, {isMap, isSeq})) changed = true;
+  }
+  return changed;
+}
 
 export function isPendingCompactionConflict(error) {
   const [header,...entries] = String(error?.message??'').trim().split(/\r?\n/);
@@ -51,6 +79,16 @@ export async function editDesktopCompaction(editor, root, ratio) {
     else if (isMap(document.getIn([rowIndex,'config'],true))) {
       document.setIn([rowIndex,'config','thresholdRatio'],ratio);
     } else document.setIn([rowIndex,'config'],document.createNode(next));
+    for (const row of document.contents.items) {
+      if (!isMap(row)) continue;
+      const cfg = row.get('config', false);
+      if (isMap(cfg)) {
+        const plugins = cfg.get('plugins', false);
+        if (isSeq(plugins)) patchNestedCompactionYaml(document, plugins, ratio, {isMap, isSeq});
+      }
+      const plugins = row.get('plugins', false);
+      if (isSeq(plugins)) patchNestedCompactionYaml(document, plugins, ratio, {isMap, isSeq});
+    }
 
     const updated = String(document);
     const patches = boot.readProfilePatches('dsh',profile,{

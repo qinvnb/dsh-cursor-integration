@@ -1,6 +1,22 @@
 import {normalizeSdkUsage,usageFormat} from './normalize.js';
+import {sanitizeLocalUsageCache} from '../route-storage.js';
 const fields = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'];
 const empty = () => ({calls: 0, failed: 0, reportedCalls: 0, uncalibratedRecords:0, sdkSends:0,sdkCreates:0,sdkResumes:0,hostRetries:0,sdkInternalRetries:null,inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0});
+const fpFields=['updatedAt','lastModified','mtime','mtimeMs','eventCount','eventsCount','size','byteLength','lastEventTime','lastEventAt','lastEventId','lastSeq','seq','revision','version'];
+export function sessionFingerprint(record) {
+  if(!record||typeof record!=='object')return null;
+  const parts=[];
+  for(const [prefix,src] of [['r',record],['h',record.header],['m',record.meta],['s',record.stats]]){
+    if(!src||typeof src!=='object')continue;
+    for(const key of fpFields){
+      const val=src[key];
+      if(val!==undefined&&val!==null&&(typeof val==='string'||typeof val==='number'||typeof val==='boolean')){
+        parts.push(prefix+'.'+key+'='+val);
+      }
+    }
+  }
+  return parts.length?parts.join('|'):null;
+}
 function add(target, entry) {
   if(entry.kind==='retry'){target.hostRetries++;return;}
   target.calls++; if (entry.failed) target.failed++;
@@ -70,24 +86,72 @@ export function aggregateCalls(calls, {now = Date.now(), periodStart, periodEnd}
     cycleStart: new Date(start).toISOString(), cycleSource: periodStart ? 'account' : 'calendar', cost: null};
 }
 
-export function createLocalReader(query, clock = Date.now) {
+export function createLocalReader(query, clock = Date.now, {loadCache = () => null, saveCache = () => {}} = {}) {
+  const hydrated = sanitizeLocalUsageCache(loadCache());
+  const sessionCache = new Map(Object.entries(hydrated?.sessions ?? {}));
+  let diskUpdatedAt = hydrated?.updatedAt ?? null;
   let cached, pending;
-  return {async get(account) {
-    const cycle = account?.periodStart ?? '';
-    if (cached && cached.cycle === cycle && clock() - cached.checkedAt < 60000) return cached.data;
-    if (pending) return pending;
-    pending = (async () => {
-      const calls = []; let skippedSessions = 0;
-      const records = await query.listSessions();
-      for (const record of records) {
-        try {calls.push(...extractCalls(await query.readSession(record.header.id)));}
-        catch {skippedSessions++;}
+  const reader = {
+    async get(account) {
+      const cycle = account?.periodStart ?? '';
+      if (cached && cached.cycle === cycle && clock() - cached.checkedAt < 60000) return cached.data;
+      if (pending) return pending;
+      pending = (async () => {
+        const calls = []; let skippedSessions = 0;
+        const records = await query.listSessions();
+        const nextSessions = new Map();
+        for (const record of records) {
+          const id = record?.header?.id;
+          const fp = sessionFingerprint(record);
+          const hit = id && fp && sessionCache.get(id)?.fp === fp;
+          if (hit) {
+            const sessionCalls = sessionCache.get(id).calls;
+            nextSessions.set(id, {fp, calls: sessionCalls});
+            calls.push(...sessionCalls);
+            continue;
+          }
+          try {
+            const sessionCalls = extractCalls(await query.readSession(id));
+            if (id) nextSessions.set(id, {fp, calls: sessionCalls});
+            calls.push(...sessionCalls);
+          } catch {
+            skippedSessions++;
+            if (id && sessionCache.has(id)) nextSessions.set(id, sessionCache.get(id));
+          }
+        }
+        sessionCache.clear();
+        for (const [id, entry] of nextSessions) sessionCache.set(id, entry);
+        const nowTs = clock();
+        diskUpdatedAt = nowTs;
+        try {
+          const payload = sanitizeLocalUsageCache({version: 1, updatedAt: nowTs, sessions: Object.fromEntries(nextSessions)});
+          if (payload) saveCache(payload);
+        } catch {}
+        const data = {...aggregateCalls(calls, {now: nowTs, periodStart: account?.periodStart, periodEnd: account?.periodEnd}),
+          scannedSessions: records.length - skippedSessions, skippedSessions, checkedAt: nowTs, error: null, scanning: false};
+        cached = {cycle, checkedAt: nowTs, data};
+        return data;
+      })().catch(() => ({error: 'DSH 历史统计暂时不可用', checkedAt: clock(), scanning: false})).finally(() => {pending = undefined;});
+      return pending;
+    },
+    peek(account) {
+      const cycle = account?.periodStart ?? '';
+      const nowTs = clock();
+      if (cached && cached.cycle === cycle && nowTs - cached.checkedAt < 60000) {
+        return {...cached.data, scanning: false};
       }
-      const data = {...aggregateCalls(calls, {now: clock(), periodStart: account?.periodStart, periodEnd: account?.periodEnd}),
-        scannedSessions: records.length - skippedSessions, skippedSessions, checkedAt: clock(), error: null};
-      cached = {cycle, checkedAt: clock(), data};
-      return data;
-    })().catch(() => ({error: 'DSH 历史统计暂时不可用', checkedAt: clock()})).finally(() => {pending = undefined;});
-    return pending;
-  }};
+      void reader.get(account).catch(() => {});
+      if (cached?.data) return {...cached.data, scanning: true};
+      if (sessionCache.size > 0) {
+        const allCalls = [];
+        for (const entry of sessionCache.values()) allCalls.push(...entry.calls);
+        return {
+          ...aggregateCalls(allCalls, {now: nowTs, periodStart: account?.periodStart, periodEnd: account?.periodEnd}),
+          scannedSessions: sessionCache.size, skippedSessions: 0, checkedAt: diskUpdatedAt, error: null, scanning: true,
+        };
+      }
+      return {scanning: true, checkedAt: null, error: null};
+    },
+  };
+  return reader;
 }

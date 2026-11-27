@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {compactionSettings} from './src/compaction-settings.js';
-import {isPendingCompactionConflict} from './src/compaction-profile.js';
+import {compactionSettings,collectNestedCompactionRatios,patchNestedCompaction} from './src/compaction-settings.js';
+import {isPendingCompactionConflict,patchNestedCompactionYaml} from './src/compaction-profile.js';
 
 test('only an inactive same-named preset can use the scoped compaction save',()=>{
  const pending='compaction-basic (test-compaction): pending (waiting for service: tokenMeter)';
@@ -53,4 +53,63 @@ test('UI reads real native value without a SettingsForms namespace and never dis
  assert.deepEqual(writes,[0.55]);tree=render();assert.equal(nodes(tree).find(n=>n.type==='input').props.value,0.55);
  nodes(tree).find(n=>n.type==='input').props.onChange({target:{value:'1.1'}});
  tree=render();await nodes(tree).find(n=>n.type==='button').props.onClick();assert.equal(writes.length,1);
+});
+
+test('compactionSettings detects presetMismatch and syncs nested preset compaction-basic entries without losing sibling settings',async()=>{
+ const topEntry={options:{id:'compaction-basic'}};
+ const presetEntry={options:{id:'preset-standard'}};
+ let topConfig={thresholdRatio:0.6,retainRatio:0.16};
+ let presetConfig={
+  id:'standard',
+  plugins:[
+   {id:'compaction',name:'cordis:group',group:true,isolate:{compaction:true},config:[
+    {id:'compaction-basic',name:'@deepseek-ai/dsh-compaction-basic'},
+    {id:'tool-result-pruner',name:'@deepseek-ai/dsh-compaction-tool-result-pruner',config:{thresholdChars:8192}},
+   ]},
+  ],
+ };
+ const editor={
+  configuration:()=>[
+   {entry:topEntry,inherited:{},override:structuredClone(topConfig)},
+   {entry:presetEntry,inherited:{},override:structuredClone(presetConfig)},
+  ],
+  edit:async(entry,change)=>{
+   if(entry===topEntry)topConfig=change(structuredClone(topConfig));
+   else if(entry===presetEntry)presetConfig=change(structuredClone(presetConfig));
+  },
+ };
+ const control=compactionSettings(editor);
+ const before=control.get();
+ assert.equal(before.thresholdRatio,0.6);
+ assert.equal(before.presetMismatch,true);
+
+ const after=await control.set(0.6);
+ assert.equal(after.thresholdRatio,0.6);
+ assert.equal(after.presetMismatch,undefined);
+ assert.deepEqual(collectNestedCompactionRatios(presetConfig.plugins),[0.6]);
+ assert.equal(presetConfig.plugins[0].config[1].config.thresholdChars,8192);
+ assert.equal(patchNestedCompaction([{id:'other'}],0.5).changed,false);
+});
+
+test('patchNestedCompactionYaml updates nested YAML compaction-basic entries while preserving sibling structure',()=>{
+ const mkMap=obj=>{
+  const map=new Map(Object.entries(obj));
+  map.__isMap=true;
+  return {
+   __isMap:true,
+   get:(k)=>map.get(k),
+   set:(k,v)=>map.set(k,v),
+   has:(k)=>map.has(k),
+  };
+ };
+ const mkSeq=items=>({__isSeq:true,items});
+ const leaf=mkMap({id:'compaction-basic',name:'@deepseek-ai/dsh-compaction-basic'});
+ const pruner=mkMap({id:'tool-result-pruner',config:mkMap({thresholdChars:8192})});
+ const group=mkMap({id:'compaction',group:true,config:mkSeq([leaf,pruner])});
+ const plugins=mkSeq([group]);
+ const doc={createNode:obj=>mkMap(obj)};
+ const changed=patchNestedCompactionYaml(doc,plugins,0.6,{isMap:x=>Boolean(x?.__isMap),isSeq:x=>Boolean(x?.__isSeq)});
+ assert.equal(changed,true);
+ assert.equal(leaf.get('config').get('thresholdRatio'),0.6);
+ assert.equal(pruner.get('config').get('thresholdChars'),8192);
 });

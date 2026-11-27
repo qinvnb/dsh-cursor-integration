@@ -11,7 +11,7 @@ const styles=`
 .ci-popup-options{display:grid;gap:4px;margin-top:8px}.ci-popup-option{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:6px 8px;border:0;border-radius:var(--dsw-radius-sm,4px);background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}.ci-popup-option:hover,.ci-popup-option[aria-pressed=true]{background:var(--dsw-alias-interactive-bg-hover)}.ci-popup-option:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}.ci-popup-option:disabled{opacity:.5;cursor:default}.ci-popup-option>svg{flex:none}.ci-popup-option>span{flex:1;min-width:0;overflow-wrap:anywhere}
 .ci-popup-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:5px 0}.ci-popup-row>span:first-child{color:var(--dsw-alias-label-secondary)}.ci-popup-row>span:last-child{font-variant-numeric:tabular-nums;overflow-wrap:anywhere;text-align:right}.ci-popup-note{margin-top:8px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}.ci-popup-action{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:var(--dsw-radius-sm,4px);padding:4px 6px;margin-top:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer}.ci-popup-action:hover{background:var(--dsw-alias-interactive-bg-hover)}
 `;
-export function Popup({label,trigger,children}) {
+export function Popup({label,trigger,children,className}) {
   const root=React.useRef(null);
   React.useEffect(()=>{
     const element=root.current;
@@ -35,7 +35,7 @@ export function Popup({label,trigger,children}) {
     element.addEventListener('toggle',toggle);
     return ()=>{cleanup();if(panel.matches(':popover-open'))panel.hidePopover();element.removeEventListener('toggle',toggle);view.removeEventListener('resize',position);document.removeEventListener('scroll',position,true);};
   },[]);
-  return h('details',{ref:root,className:'ci-popup',name:'cursor-integration-popup'},
+  return h('details',{ref:root,className:className?'ci-popup '+className:'ci-popup',name:'cursor-integration-popup'},
     h('style',null,styles),
     h('summary',{'aria-label':label},trigger),
     h('div',{className:'ci-popup-panel',popover:'manual'},typeof children==='function'?children(()=>{

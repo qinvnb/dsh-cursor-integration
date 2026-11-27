@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {rank,cycleProgress,totals,createPool} from './src/pool.js';
+import {sanitizeUsageCache} from './src/route-storage.js';
 const row=(id,api,demand,limit=100)=>({id,account:{status:'ready',data:{meters:[{key:'api',unit:'percent',percent:api},{key:'onDemand',unit:'usd',percent:demand,used:demand*limit/100,limit}]}}});
 
 test('a recovered directory notifies selectors once and repeated quota refreshes do not reload models',async()=>{
@@ -103,4 +104,187 @@ test('cooldown skips rate-limited and auth-failed accounts, clears on manual cho
  assert.equal(await pool.failover('claude',undefined,'b'),undefined);
  assert.equal((await pool.route('claude')).ref,'b');
  pool.close();
+});
+
+test('usage cache persists sanitized quota and skips immediate startup fetch within refresh interval',async()=>{
+  let clock=1_700_000_000_000;
+  let savedCache=null;
+  let reads=0;
+  const rows=[{
+    id:'k1',label:'主账号',active:true,keyHint:'••••1234',
+    account:{
+      status:'ready',error:null,checkedAt:clock,fetchedAt:clock,
+      secretToken:'should-not-persist',
+      data:{
+        membership:'pro',periodStart:'2026-11-23T00:00:00.000Z',periodEnd:'2026-12-23T00:00:00.000Z',
+        raw:{secret:true},
+        meters:[
+          {key:'auto',label:'Cursor 模型',unit:'percent',used:10,limit:100,remaining:90,percent:10,extra:'strip'},
+          {key:'api',label:'其它模型',unit:'percent',used:40,limit:100,remaining:60,percent:40},
+          {key:'onDemand',label:'按量付费',unit:'usd',used:2.5,limit:20,remaining:17.5,percent:12.5},
+        ],
+      },
+    },
+  }];
+  const pool=createPool({
+    accounts:{list:()=>[{id:'k1',label:'主账号',active:true}],all:async()=>{reads++;return {accounts:rows};}},
+    resolve:async()=>'k1',
+    catalog:async()=>[{id:'claude'}],
+    now:()=>new Date(clock),
+    interval:()=>5,
+    loadUsageCache:()=>savedCache,
+    saveUsageCache:v=>{savedCache=v;},
+  });
+  await pool.refresh();
+  assert.equal(reads,1);
+  assert.ok(savedCache);
+  assert.equal(JSON.stringify(savedCache).includes('should-not-persist'),false);
+  assert.equal(JSON.stringify(savedCache).includes('extra'),false);
+  assert.equal(savedCache.accounts.k1.data.raw,undefined);
+  pool.close();
+
+  // Restart 2 minutes later (within 5-minute interval): hydrated view has cached data and start() skips immediate fetch
+  clock+=120_000;
+  let coldReads=0;
+  const restarted=createPool({
+    accounts:{list:()=>[{id:'k1',label:'主账号',active:true}],all:async()=>{coldReads++;return {accounts:rows};}},
+    resolve:async()=>'k1',
+    catalog:async()=>[{id:'claude'}],
+    now:()=>new Date(clock),
+    interval:()=>5,
+    loadUsageCache:()=>savedCache,
+    saveUsageCache:v=>{savedCache=v;},
+  });
+  const initialView=restarted.view();
+  assert.equal(initialView.accounts[0].account.status,'ready');
+  assert.equal(initialView.accounts[0].account.data.meters[1].percent,40);
+  assert.equal(initialView.totals[1].percent,40);
+  assert.equal(restarted.info().updatedAt,1_700_000_000_000);
+  restarted.start();
+  await new Promise(r=>setImmediate(r));
+  assert.equal(coldReads,0);
+  restarted.close();
+});
+
+test('usage cache triggers immediate startup fetch when stale, missing a new account, or timestamped in the future',async()=>{
+  const nowMs=1_700_000_600_000;
+  const cachedEntry=fetchedAt=>({
+    fetchedAt,
+    data:{
+      membership:'pro',periodStart:'2026-11-23T00:00:00.000Z',periodEnd:'2026-12-23T00:00:00.000Z',
+      meters:[{key:'api',label:'其它模型',unit:'percent',used:20,limit:100,remaining:80,percent:20}],
+    },
+  });
+  const makePool=({accountsList,cache,minutes=5})=>{
+    let reads=0;
+    const pool=createPool({
+      accounts:{list:()=>accountsList,all:async()=>{reads++;return {accounts:accountsList.map(a=>({...a,account:{status:'ready',fetchedAt:nowMs,data:cachedEntry(nowMs).data}}))};}},
+      resolve:async id=>id,
+      catalog:async()=>[{id:'claude'}],
+      now:()=>new Date(nowMs),
+      interval:()=>minutes,
+      loadUsageCache:()=>cache,
+    });
+    return {pool,getReads:()=>reads};
+  };
+
+  // 1. Stale (>5m old)
+  const stale=makePool({
+    accountsList:[{id:'k1',label:'A',active:true}],
+    cache:{version:1,updatedAt:nowMs-301_000,accounts:{k1:cachedEntry(nowMs-301_000)}},
+  });
+  stale.pool.start();
+  await new Promise(r=>setImmediate(r));
+  assert.equal(stale.getReads(),1);
+  stale.pool.close();
+
+  // 2. Missing newly added account k2 even when cache is recent
+  const missingAcc=makePool({
+    accountsList:[{id:'k1',label:'A',active:true},{id:'k2',label:'B',active:false}],
+    cache:{version:1,updatedAt:nowMs-30_000,accounts:{k1:cachedEntry(nowMs-30_000)}},
+  });
+  missingAcc.pool.start();
+  await new Promise(r=>setImmediate(r));
+  assert.equal(missingAcc.getReads(),1);
+  missingAcc.pool.close();
+
+  // 3. Future updatedAt
+  const futureCache=makePool({
+    accountsList:[{id:'k1',label:'A',active:true}],
+    cache:{version:1,updatedAt:nowMs+60_000,accounts:{k1:cachedEntry(nowMs)}},
+  });
+  futureCache.pool.start();
+  await new Promise(r=>setImmediate(r));
+  assert.equal(futureCache.getReads(),1);
+  futureCache.pool.close();
+});
+
+test('offline error during refresh preserves disk-cached quota data without overwriting cache updatedAt',async()=>{
+  const oldTs=1_700_000_000_000;
+  const nowTs=oldTs+600_000;
+  let savedCount=0;
+  const cache={
+    version:1,
+    updatedAt:oldTs,
+    accounts:{
+      k1:{
+        fetchedAt:oldTs,
+        data:{
+          membership:'pro',periodStart:'2026-11-23T00:00:00.000Z',periodEnd:'2026-12-23T00:00:00.000Z',
+          meters:[{key:'api',label:'其它模型',unit:'percent',used:55,limit:100,remaining:45,percent:55}],
+        },
+      },
+    },
+  };
+  const pool=createPool({
+    accounts:{
+      list:()=>[{id:'k1',label:'主账号',active:true}],
+      all:async()=>({accounts:[{id:'k1',label:'主账号',active:true,account:{status:'error',error:'用量查询暂时失败',data:null,checkedAt:nowTs,fetchedAt:null}}]}),
+    },
+    resolve:async()=>'k1',
+    catalog:async()=>[{id:'claude'}],
+    now:()=>new Date(nowTs),
+    loadUsageCache:()=>cache,
+    saveUsageCache:()=>{savedCount++;},
+  });
+  await pool.refresh();
+  assert.equal(savedCount,0);
+  const acc=pool.view().accounts[0].account;
+  assert.equal(acc.status,'error');
+  assert.equal(acc.error,'用量查询暂时失败');
+  assert.equal(acc.fetchedAt,oldTs);
+  assert.equal(acc.data.meters[0].percent,55);
+  assert.equal((await pool.route('claude')).ref,'k1');
+  pool.close();
+});
+
+test('sanitizeUsageCache rejects malformed inputs and strips unknown properties',()=>{
+  assert.equal(sanitizeUsageCache(null),null);
+  assert.equal(sanitizeUsageCache({version:2,updatedAt:100,accounts:{}}),null);
+  assert.equal(sanitizeUsageCache({version:1,updatedAt:-5,accounts:{k1:{fetchedAt:10,data:{meters:[{key:'api',unit:'percent',percent:10}]}}}}),null);
+  assert.equal(sanitizeUsageCache({version:1,updatedAt:100,accounts:{k1:{fetchedAt:10,data:{meters:[]}}}}),null);
+  const clean=sanitizeUsageCache({
+    version:1,updatedAt:100,extraRoot:true,
+    accounts:{
+      k1:{
+        fetchedAt:90,apiKey:'secret',
+        data:{
+          membership:'pro',periodStart:'2026-11-01',periodEnd:'2026-12-01',secretField:'bad',
+          meters:[{key:'api',label:'其它模型',unit:'percent',used:10,limit:100,remaining:90,percent:10,token:'leak'}],
+        },
+      },
+    },
+  });
+  assert.deepEqual(clean,{
+    version:1,updatedAt:100,
+    accounts:{
+      k1:{
+        fetchedAt:90,
+        data:{
+          membership:'pro',periodStart:'2026-11-01',periodEnd:'2026-12-01',
+          meters:[{key:'api',label:'其它模型',unit:'percent',used:10,limit:100,remaining:90,percent:10}],
+        },
+      },
+    },
+  });
 });

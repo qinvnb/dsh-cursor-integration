@@ -1,5 +1,18 @@
 // Native DSH AccountSection and StatsPills theme tokens, without private class names.
 export const styles = `
+body:has(.dcp-cursor-context) [data-dsh-claude-context-meter],body:has(.dcp-cursor-context) [data-dsh-claude-context-panel]{display:none!important}
+[data-composer-dock]:has(.dcp-cursor-context)>span:has(button[aria-haspopup="dialog"]:is([aria-label^="上下文已用 "],[aria-label$=" of context used"])){display:none!important}
+.dcp-cursor-context{display:inline-flex;align-items:center}
+.dcp-context-label{font-weight:500}.cu-context-cap{color:var(--dsw-alias-label-tertiary)}
+.dcp-context-heading{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500}.dcp-context-heading svg{color:var(--dsw-alias-label-secondary)}
+.dcp-context-row{display:grid;grid-template-columns:minmax(100px,1fr) auto 62px;gap:8px;padding:6px 0;align-items:center}.dcp-context-row>span:last-child{text-align:right}
+.dcp-context-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.dcp-context-note{font-size:12px;line-height:18px;margin-top:8px;color:var(--dsw-alias-label-tertiary)}
+.cu-bar{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:2px 6px;flex-basis:100%;width:100%;min-height:26px;padding:1px 4px;box-sizing:border-box;color:var(--dsw-alias-label-secondary)}
+.cu-pill-busy,.cu-pill-icon-busy{color:var(--dsw-alias-state-business-primary)}
+.cu-pill-error,.cu-pill-icon-error{color:var(--dsw-alias-state-error-primary,#c44942)}
+.cu-quota-group{padding-top:8px;border-top:.5px solid var(--dsw-alias-border-l2);margin-top:6px}
+.cu-quota-group:first-of-type{border-top:0;padding-top:0;margin-top:0}
 .cu-status-row,.cu-quota-row{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;flex-basis:100%;width:100%;min-height:26px;padding:3px 8px;box-sizing:border-box;color:var(--dsw-alias-label-secondary);font:inherit;line-height:inherit}
 .cu-status-label{font-weight:500;flex:none;color:var(--dsw-alias-label-secondary)}
 .cu-status-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;font-size:16px;line-height:1;color:var(--dsw-alias-label-secondary)}

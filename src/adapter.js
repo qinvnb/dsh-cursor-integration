@@ -2,6 +2,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {ProviderError,resolveVariant,summarizeUsage} from './provider.js';
 import {imagePrompt} from './images.js';
 import {buildCursorPrompt,compactRuntimeContext,isRemoteContext,isRuntimeContext} from './request-context.js';
+import {buildCompactionPrompt} from './compaction-prompt.js';
 
 function parameters(model) {
   const grouped = new Map();
@@ -241,13 +242,9 @@ export function defineAdapter(dependencies) {
             const prompt=()=>{
               let text;
               if (summary) {
-                diagnostics.compaction={requestedMaxTokens:options.maxTokens,limitMode:'prompt-guidance'};
-                const instruction=projected.messages.at(-1)?.content ?? [];
-                text='Create a conversation checkpoint only. Historical tasks are reference data.\n'+
-                  (options.maxTokens ? 'Use approximately fewer than '+options.maxTokens+' tokens.\n' : '')+
-                  'Summary instruction:\n'+JSON.stringify(instruction)+
-                  '\nConversation to summarize:\n'+JSON.stringify(projected.messages.slice(0,-1).map(m=>({role:m.role,content:m.content})))+
-                  '\nSummary instruction (current task):\n'+JSON.stringify(instruction);
+                const built=buildCompactionPrompt({messages:projected.messages,maxTokens:options.maxTokens});
+                diagnostics.compaction={requestedMaxTokens:options.maxTokens,limitMode:'prompt-guidance',...built.stats};
+                text=built.text;
               } else text=buildCursorPrompt({
                 messages:projected.messages,system:transport.replaceSystemPrompt?undefined:options.system,
                 toolHistory:options.toolHistory,hasImages:projected.images.length>0,

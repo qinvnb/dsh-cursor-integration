@@ -30,3 +30,39 @@ test('a fixed account is available and confirmed before the full usage snapshot 
   assert.equal(reads,2);
   assert.equal(store.getSnapshot().data.active.id,'b');
 });
+
+test('usage store schedules silent follow-up refresh while local scan is running and stops when done', async t => {
+  let reads=0;
+  const scheduled=[];
+  const busyStates=[];
+  const store=createUsageStore({
+    getSnapshot:async()=>{
+      reads++;
+      return {ok:true,value:{active:{id:'a',label:'A'},keys:[],local:{scanning:reads<3,all:{calls:reads}}}};
+    },
+  },{
+    setTimer:()=>1,
+    clearTimer:()=>{},
+    setTimeoutImpl:fn=>{scheduled.push(fn);return scheduled.length;},
+    clearTimeoutImpl:()=>{},
+  });
+  t.after(()=>store.dispose());
+  const unsub=store.subscribe(()=>{busyStates.push(store.getSnapshot().busy);});
+  await new Promise(r=>setImmediate(r));
+  assert.equal(reads,1);
+  assert.equal(scheduled.length,1);
+
+  busyStates.length=0;
+  scheduled[0]();
+  await new Promise(r=>setImmediate(r));
+  assert.equal(reads,2);
+  assert.equal(busyStates.includes(true),false);
+  assert.equal(scheduled.length,2);
+
+  scheduled[1]();
+  await new Promise(r=>setImmediate(r));
+  assert.equal(reads,3);
+  assert.equal(store.getSnapshot().data.local.scanning,false);
+  assert.equal(scheduled.length,2);
+  unsub();
+});

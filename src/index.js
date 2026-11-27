@@ -16,7 +16,7 @@ import {createAccountsReader} from './usage/accounts.js';
 import {createAccountReader} from './usage/account.js';
 import {mountUsage} from './usage/service.js';
 import {createRouteChecks} from './route-check.js';
-import {loadRoutes,saveRoutes,loadDefaults,saveDefaults} from './route-storage.js';
+import {loadRoutes,saveRoutes,loadDefaults,saveDefaults,loadUsageCache,saveUsageCache} from './route-storage.js';
 import {checkpointRoot,sweep} from './checkpoints.js';
 import {installCursorContextMeter,createCursorContextRoute,createCompactionStatus} from './context.js';
 
@@ -39,6 +39,7 @@ export const Config=z.object({
   providers:z.dict(z.object({
     apiKeyEnv:z.string().role('credential-ref'),accounts:z.array(accountConfig),
     usageRefreshMinutes:z.number().step(1).min(1).max(1440),
+    enhancedModelPicker:z.boolean(),
     displayName:z.string(),contextWindow:z.number().step(1).min(1),
     models:z.array(z.union([z.string(),modelConfig])),
   })).default({}).volatile(),
@@ -75,7 +76,7 @@ export function apply(ctx,config) {
     fallbackRef:'CURSOR_API_KEY',proxyUrl:config.proxyUrl,
   });
   const pool=createPool({
-    accounts,resolve,loadDefaults,saveDefaults,interval:()=>profile().usageRefreshMinutes??5,
+    accounts,resolve,loadDefaults,saveDefaults,loadUsageCache,saveUsageCache,interval:()=>profile().usageRefreshMinutes??5,
     catalog:(key,signal)=>transport.catalog(key,signal),
     onModelsChanged:()=>ctx.emit('llm/adapters-updated'),
   });
